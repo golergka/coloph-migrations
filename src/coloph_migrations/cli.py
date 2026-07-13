@@ -89,7 +89,12 @@ def run(argv: list[str] | None = None) -> int:
         if config.database_url is None:
             raise MigrationError("database_url is required")
         with psycopg.connect(config.database_url) as conn:
-            rows = check_current(conn, config) if command == "check" else plan(conn, config) if command == "plan" else statuses(conn, config)
+            if command == "check":
+                rows = check_current(conn, config)
+            elif command == "plan":
+                rows = plan(conn, config)
+            else:
+                rows = statuses(conn, config)
         result = [row.__dict__ for row in rows]
     elif command == "snapshot":
         result = snapshot(
