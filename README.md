@@ -37,7 +37,8 @@ after_each_migration_sql = "migrations/after_each.sql"
 ```
 
 Use an ignored `coloph-migrations.local.toml` for credentials and local
-overrides. Explicit CLI flags override both files.
+overrides. Explicit CLI flags override both files. For credentials that must not appear in process arguments,
+set `COLOPH_MIGRATIONS_DATABASE_URL` instead of storing `database_url` or passing `--database-url`.
 
 ## Commands
 
@@ -57,4 +58,3 @@ Pass `--json` for stable machine-readable output.
 ## License
 
 GPL-3.0-only. The Coloph name and logo are not licensed for use as trademarks.
-

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -65,7 +66,7 @@ def run(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     config = override_config(
         load_config(args.config),
-        database_url=args.database_url,
+        database_url=args.database_url or os.environ.get("COLOPH_MIGRATIONS_DATABASE_URL"),
         migrations_dir=args.migrations_dir,
         schema_snapshot=args.schema_snapshot,
     )
