@@ -108,7 +108,7 @@ def normalize_schema(raw: str, exclude_index_patterns: tuple[str, ...] = ()) -> 
 def canonical_schema(config: Config, database_url: str) -> str:
     version = detect_server_version(database_url)
     raw = _pg_dump(database_url, version, _child_partitions(database_url))
-    return normalize_schema(raw, config.exclude_index_patterns)
+    return config.schema_header + normalize_schema(raw, config.exclude_index_patterns)
 
 
 def strip_top_level_comments(schema: str) -> str:
@@ -144,7 +144,14 @@ def restore_schema_doc_comments(generated: str, previous: str) -> tuple[str, int
     return "\n".join(output) + ("\n" if generated.endswith("\n") else ""), restored
 
 
-def snapshot(config: Config, *, database_url: str | None = None, fresh: bool = False, up_to: str | None = None) -> dict:
+def snapshot(
+    config: Config,
+    *,
+    database_url: str | None = None,
+    fresh: bool = False,
+    up_to: str | None = None,
+    preserve_doc_comments: bool = True,
+) -> dict:
     if fresh:
         with temporary_database(config) as test_url:
             apply_to_database(config, test_url, up_to=up_to)
@@ -156,7 +163,7 @@ def snapshot(config: Config, *, database_url: str | None = None, fresh: bool = F
         schema = canonical_schema(config, target)
 
     restored = 0
-    if config.schema_snapshot.exists():
+    if preserve_doc_comments and config.schema_snapshot.exists():
         schema, restored = restore_schema_doc_comments(
             schema,
             config.schema_snapshot.read_text(encoding="utf-8"),

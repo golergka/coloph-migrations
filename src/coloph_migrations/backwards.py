@@ -28,6 +28,14 @@ def check_backwards(config: Config) -> dict:
     if resolve.returncode != 0:
         return {"status": "skipped", "reason": f"ref {config.deployed_ref} does not exist"}
     deployed_sha = resolve.stdout.strip()
+
+    if config.backwards_bootstrap_file and config.backwards_bootstrap_marker:
+        relative_bootstrap = config.backwards_bootstrap_file.relative_to(config.root)
+        bootstrap = _git(config, "show", f"{deployed_sha}:{relative_bootstrap}")
+        if bootstrap.returncode != 0:
+            raise MigrationError(bootstrap.stderr.strip() or f"Unable to read {relative_bootstrap} at deployed ref")
+        if config.backwards_bootstrap_marker not in bootstrap.stdout:
+            return {"status": "skipped", "reason": "deployed code lacks backwards-test database support"}
     head = _git(config, "rev-parse", "HEAD")
     if head.returncode != 0:
         raise MigrationError(head.stderr.strip() or "Unable to resolve HEAD")
@@ -52,8 +60,21 @@ def check_backwards(config: Config) -> dict:
             if config.backwards_setup_command:
                 subprocess.run(config.backwards_setup_command, cwd=worktree, check=True)
             env = {**os.environ, config.backwards_database_url_env: database_url}
+            test_command = list(config.backwards_test_command)
+            if config.backwards_test_globs:
+                targets = sorted(
+                    str(path.relative_to(worktree))
+                    for pattern in config.backwards_test_globs
+                    for path in worktree.glob(pattern)
+                )
+                if not targets:
+                    raise MigrationError(
+                        "No backwards-compatibility test files matched: " + ", ".join(config.backwards_test_globs)
+                    )
+                test_command.extend(targets)
+            test_command.extend(config.backwards_test_args)
             result = subprocess.run(
-                list(config.backwards_test_command),
+                test_command,
                 cwd=worktree,
                 env=env,
                 capture_output=True,

@@ -1,6 +1,6 @@
 [project]
 name = "coloph-migrations"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent-friendly PostgreSQL migration CLI extracted from Coloph"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -31,4 +31,3 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-

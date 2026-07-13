@@ -34,6 +34,12 @@ deployed_ref = "deployed"
 # runs in a separate transaction after the migration is recorded and committed.
 before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
+
+# Optional reconstruction-only behavior for extensions unavailable in the
+# disposable PostgreSQL image and for catalog-heavy post hooks.
+fresh_skip_feature_not_supported = true
+fresh_statement_timeout_seconds = 90
+fresh_vacuum_after_each_migration = true
 ```
 
 Use an ignored `coloph-migrations.local.toml` for credentials and local
@@ -54,6 +60,13 @@ coloph-migrate check-backwards
 ```
 
 Pass `--json` for stable machine-readable output.
+
+`apply --reconstruction` activates only the configured disposable-database
+policies. Ordinary production `apply` remains fail-loud.
+
+The test suite deliberately exercises broken numbering, explicit transaction
+control, failed migration rollback, pre/post-hook transaction boundaries,
+checksum drift, schema drift, and safe-versus-unsafe checksum repair.
 
 ## License
 

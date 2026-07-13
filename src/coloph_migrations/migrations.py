@@ -167,13 +167,20 @@ def _read_optional(path: Path | None) -> str | None:
     return path.read_text(encoding="utf-8") if path is not None else None
 
 
-def apply(config: Config, *, skip_advisory_lock: bool = False, up_to: str | None = None) -> dict[str, object]:
+def apply(
+    config: Config,
+    *,
+    skip_advisory_lock: bool = False,
+    up_to: str | None = None,
+    reconstruction: bool = False,
+) -> dict[str, object]:
     if config.database_url is None:
         raise MigrationError("database_url is required")
     migrations = discover_migrations(config.migrations_dir, up_to=up_to)
     before_sql = _read_optional(config.before_each_migration_sql)
     after_sql = _read_optional(config.after_each_migration_sql)
     applied_names: list[str] = []
+    skipped_names: list[str] = []
 
     with psycopg.connect(config.database_url, row_factory=dict_row, prepare_threshold=None) as conn:
         _ensure_table(conn, config)
@@ -193,7 +200,12 @@ def apply(config: Config, *, skip_advisory_lock: bool = False, up_to: str | None
                         )
                     continue
 
-                for attempt in range(config.apply_max_attempts):
+                max_attempts = (
+                    config.concurrent_ddl_max_attempts
+                    if reconstruction and migration.version in config.concurrent_ddl_retry_versions
+                    else config.apply_max_attempts
+                )
+                for attempt in range(max_attempts):
                     try:
                         cur.execute(
                             "SELECT set_config('lock_timeout', %s, true)", (f"{config.apply_lock_timeout_seconds}s",)
@@ -203,6 +215,11 @@ def apply(config: Config, *, skip_advisory_lock: bool = False, up_to: str | None
                         )
                         if before_sql:
                             cur.execute(before_sql)
+                        if reconstruction:
+                            cur.execute(
+                                "SELECT set_config('statement_timeout', %s, true)",
+                                (f"{config.fresh_statement_timeout_seconds}s",),
+                            )
                         cur.execute(migration.sql)
                         cur.execute(
                             sql.SQL("INSERT INTO {} (version, filename, checksum) VALUES (%s, %s, %s)").format(
@@ -214,9 +231,37 @@ def apply(config: Config, *, skip_advisory_lock: bool = False, up_to: str | None
                         break
                     except psycopg.errors.LockNotAvailable:
                         conn.rollback()
-                        if attempt == config.apply_max_attempts - 1:
+                        if attempt == max_attempts - 1:
                             raise
                         time.sleep(config.retry_sleep_seconds)
+                    except psycopg.errors.InternalError_ as exc:
+                        message = getattr(exc.diag, "message_primary", "") or str(exc)
+                        if (
+                            not reconstruction
+                            or migration.version not in config.concurrent_ddl_retry_versions
+                            or config.concurrent_ddl_retry_message not in message
+                        ):
+                            raise
+                        conn.rollback()
+                        if attempt == max_attempts - 1:
+                            raise
+                        time.sleep(config.concurrent_ddl_retry_sleep_seconds * (attempt + 1))
+                    except psycopg.errors.FeatureNotSupported:
+                        if not (reconstruction and config.fresh_skip_feature_not_supported):
+                            raise
+                        conn.rollback()
+                        cur.execute(
+                            sql.SQL("INSERT INTO {} (version, filename, checksum) VALUES (%s, %s, %s)").format(
+                                _identifier(config.migration_table)
+                            ),
+                            (migration.version, migration.filename, migration.checksum),
+                        )
+                        conn.commit()
+                        skipped_names.append(migration.filename)
+                        break
+
+                if migration.filename in skipped_names:
+                    continue
 
                 if after_sql:
                     for attempt in range(config.post_max_attempts):
@@ -239,13 +284,30 @@ def apply(config: Config, *, skip_advisory_lock: bool = False, up_to: str | None
                             time.sleep(config.retry_sleep_seconds)
                 applied_names.append(migration.filename)
 
+                if reconstruction and config.fresh_vacuum_after_each_migration:
+                    conn.autocommit = True
+                    try:
+                        cur.execute("VACUUM")
+                    finally:
+                        conn.autocommit = False
+
             if not skip_advisory_lock:
                 cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
             conn.commit()
-    return {"applied": applied_names, "applied_count": len(applied_names)}
+    return {
+        "applied": applied_names,
+        "applied_count": len(applied_names),
+        "skipped": skipped_names,
+        "skipped_count": len(skipped_names),
+    }
 
 
 def apply_to_database(config: Config, database_url: str, *, up_to: str | None = None) -> dict[str, object]:
     from dataclasses import replace
 
-    return apply(replace(config, database_url=database_url), skip_advisory_lock=True, up_to=up_to)
+    return apply(
+        replace(config, database_url=database_url),
+        skip_advisory_lock=True,
+        up_to=up_to,
+        reconstruction=True,
+    )

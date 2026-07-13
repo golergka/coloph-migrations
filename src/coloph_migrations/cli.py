@@ -28,6 +28,11 @@ def _parser() -> argparse.ArgumentParser:
     apply_parser = sub.add_parser("apply", help="Apply pending migrations")
     apply_parser.add_argument("--up-to")
     apply_parser.add_argument("--dangerously-skip-advisory-lock", action="store_true")
+    apply_parser.add_argument(
+        "--reconstruction",
+        action="store_true",
+        help="Apply disposable-database policies configured for schema reconstruction",
+    )
     sub.add_parser("list", help="List applied and pending migrations")
     sub.add_parser("check", help="Fail unless every migration is applied and unchanged")
 
@@ -36,6 +41,7 @@ def _parser() -> argparse.ArgumentParser:
         "--fresh", action="store_true", help="Rebuild from migrations in disposable PostgreSQL"
     )
     snapshot_parser.add_argument("--up-to")
+    snapshot_parser.add_argument("--no-preserve-doc-comments", action="store_true")
 
     validate_parser = sub.add_parser("validate", help="Compare target schema with a reconstructed database")
     validate_parser.add_argument("--match-applied", action="store_true")
@@ -76,6 +82,7 @@ def run(argv: list[str] | None = None) -> int:
             config,
             skip_advisory_lock=args.dangerously_skip_advisory_lock,
             up_to=args.up_to,
+            reconstruction=args.reconstruction,
         )
     elif command in {"list", "check"}:
         if config.database_url is None:
@@ -84,7 +91,12 @@ def run(argv: list[str] | None = None) -> int:
             rows = check_current(conn, config) if command == "check" else statuses(conn, config)
         result = [row.__dict__ for row in rows]
     elif command == "snapshot":
-        result = snapshot(config, fresh=args.fresh, up_to=args.up_to)
+        result = snapshot(
+            config,
+            fresh=args.fresh,
+            up_to=args.up_to,
+            preserve_doc_comments=not args.no_preserve_doc_comments,
+        )
     elif command == "validate":
         result = validate(config, match_applied=args.match_applied, up_to=args.up_to)
         if not result["identical"]:

@@ -29,10 +29,22 @@ class Config:
     post_statement_timeout_seconds: int = 30
     post_max_attempts: int = 5
     retry_sleep_seconds: float = 2
+    concurrent_ddl_retry_versions: tuple[str, ...] = ()
+    concurrent_ddl_retry_message: str = "tuple concurrently updated"
+    concurrent_ddl_max_attempts: int = 5
+    concurrent_ddl_retry_sleep_seconds: float = 0.2
     exclude_index_patterns: tuple[str, ...] = ()
+    schema_header: str = ""
+    fresh_skip_feature_not_supported: bool = False
+    fresh_statement_timeout_seconds: int = 90
+    fresh_vacuum_after_each_migration: bool = False
     backwards_test_command: tuple[str, ...] = ()
     backwards_setup_command: tuple[str, ...] = ()
+    backwards_test_globs: tuple[str, ...] = ()
+    backwards_test_args: tuple[str, ...] = ()
     backwards_database_url_env: str = "TEST_DATABASE_URL"
+    backwards_bootstrap_file: Path | None = None
+    backwards_bootstrap_marker: str | None = None
 
 
 _PATH_FIELDS = {
@@ -40,8 +52,16 @@ _PATH_FIELDS = {
     "schema_snapshot",
     "before_each_migration_sql",
     "after_each_migration_sql",
+    "backwards_bootstrap_file",
 }
-_TUPLE_FIELDS = {"exclude_index_patterns", "backwards_test_command", "backwards_setup_command"}
+_TUPLE_FIELDS = {
+    "exclude_index_patterns",
+    "concurrent_ddl_retry_versions",
+    "backwards_test_command",
+    "backwards_setup_command",
+    "backwards_test_globs",
+    "backwards_test_args",
+}
 
 
 def _read_toml(path: Path) -> dict[str, object]:
