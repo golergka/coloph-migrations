@@ -11,7 +11,7 @@ import psycopg
 from .backwards import check_backwards
 from .config import load_config, override_config
 from .git_checks import check_chain
-from .migrations import MigrationError, apply, check_current, statuses
+from .migrations import MigrationError, apply, check_current, plan, statuses
 from .repair import repair_checksums
 from .schema import snapshot, validate
 
@@ -34,6 +34,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Apply disposable-database policies configured for schema reconstruction",
     )
     sub.add_parser("list", help="List applied and pending migrations")
+    sub.add_parser("plan", help="List pending migrations; fail on applied checksum drift")
     sub.add_parser("check", help="Fail unless every migration is applied and unchanged")
 
     snapshot_parser = sub.add_parser("snapshot", help="Write the canonical schema snapshot")
@@ -84,11 +85,16 @@ def run(argv: list[str] | None = None) -> int:
             up_to=args.up_to,
             reconstruction=args.reconstruction,
         )
-    elif command in {"list", "check"}:
+    elif command in {"list", "plan", "check"}:
         if config.database_url is None:
             raise MigrationError("database_url is required")
         with psycopg.connect(config.database_url) as conn:
-            rows = check_current(conn, config) if command == "check" else statuses(conn, config)
+            if command == "check":
+                rows = check_current(conn, config)
+            elif command == "plan":
+                rows = plan(conn, config)
+            else:
+                rows = statuses(conn, config)
         result = [row.__dict__ for row in rows]
     elif command == "snapshot":
         result = snapshot(

@@ -52,6 +52,7 @@ set `COLOPH_MIGRATIONS_DATABASE_URL` instead of storing `database_url` or passin
 ```text
 coloph-migrate apply
 coloph-migrate list
+coloph-migrate plan
 coloph-migrate check
 coloph-migrate snapshot
 coloph-migrate validate

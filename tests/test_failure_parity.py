@@ -7,7 +7,7 @@ import psycopg
 import pytest
 
 from coloph_migrations.config import Config
-from coloph_migrations.migrations import MigrationError, apply, check_current, discover_migrations, statuses
+from coloph_migrations.migrations import MigrationError, apply, check_current, discover_migrations, plan, statuses
 from coloph_migrations.repair import repair_checksums
 from coloph_migrations.schema import validate
 
@@ -66,6 +66,26 @@ def test_checksum_drift_fails_loud(tmp_path: Path, database_url: str) -> None:
         apply(config)
     with psycopg.connect(database_url) as conn:
         assert statuses(conn, config)[0].status == "checksum_mismatch"
+
+
+def test_plan_reports_pending_but_fails_checksum_drift_and_releases_lock(
+    tmp_path: Path, database_url: str
+) -> None:
+    config = _config(tmp_path, database_url)
+    migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    _write(config, "0002_pending.sql", "CREATE TABLE pending(id integer);\n")
+
+    with psycopg.connect(database_url) as conn:
+        assert [item.status for item in plan(conn, config)] == ["applied", "pending"]
+
+    migration.write_text("CREATE TABLE widgets(id bigint);\n", encoding="utf-8")
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(MigrationError, match="checksum mismatch"):
+            plan(conn, config)
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (config.advisory_lock_name,)).fetchone()[0]
+        conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
 
 
 def test_renamed_and_orphan_history_are_reported_but_do_not_block_current_check(
