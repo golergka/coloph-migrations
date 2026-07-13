@@ -19,6 +19,7 @@ class Config:
     after_each_migration_sql: Path | None = None
     main_ref: str = "main"
     deployed_ref: str = "deployed"
+    deployed_fetch_remote: str | None = None
     postgres_image: str = "pgvector/pgvector:pg17"
     migration_table: str = "schema_migrations"
     advisory_lock_name: str = "schema_migrations"

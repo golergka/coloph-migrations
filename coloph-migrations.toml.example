@@ -6,6 +6,7 @@ before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
 main_ref = "main"
 deployed_ref = "deployed"
+deployed_fetch_remote = "origin"
 postgres_image = "pgvector/pgvector:pg17"
 fresh_skip_feature_not_supported = false
 fresh_statement_timeout_seconds = 90

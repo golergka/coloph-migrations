@@ -24,6 +24,10 @@ def _git(config: Config, *args: str) -> subprocess.CompletedProcess[str]:
 def check_backwards(config: Config) -> dict:
     if not config.backwards_test_command:
         raise MigrationError("backwards_test_command must be configured")
+    if config.deployed_fetch_remote:
+        fetched = _git(config, "fetch", "--tags", "--force", config.deployed_fetch_remote)
+        if fetched.returncode != 0:
+            raise MigrationError(fetched.stderr.strip() or "Unable to refresh deployed ref")
     resolve = _git(config, "rev-parse", config.deployed_ref)
     if resolve.returncode != 0:
         return {"status": "skipped", "reason": f"ref {config.deployed_ref} does not exist"}
