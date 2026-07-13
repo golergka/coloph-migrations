@@ -7,7 +7,7 @@ import psycopg
 import pytest
 
 from coloph_migrations.config import Config
-from coloph_migrations.migrations import MigrationError, apply, discover_migrations, statuses
+from coloph_migrations.migrations import MigrationError, apply, check_current, discover_migrations, statuses
 from coloph_migrations.repair import repair_checksums
 from coloph_migrations.schema import validate
 
@@ -64,7 +64,24 @@ def test_checksum_drift_fails_loud(tmp_path: Path, database_url: str) -> None:
 
     with pytest.raises(MigrationError, match="differs"):
         apply(config)
-    assert statuses(psycopg.connect(database_url), config)[0].status == "checksum_mismatch"
+    with psycopg.connect(database_url) as conn:
+        assert statuses(conn, config)[0].status == "checksum_mismatch"
+
+
+def test_renamed_and_orphan_history_are_reported_but_do_not_block_current_check(
+    tmp_path: Path, database_url: str
+) -> None:
+    config = _config(tmp_path, database_url)
+    migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    migration.rename(config.migrations_dir / "0001_renamed.sql")
+    with psycopg.connect(database_url) as conn:
+        conn.execute(
+            "INSERT INTO schema_migrations(version, filename, checksum) VALUES ('9999', '9999_old.sql', 'old')"
+        )
+        conn.commit()
+        states = [item.status for item in check_current(conn, config)]
+    assert states == ["renamed", "orphan"]
 
 
 def test_before_hook_failure_rolls_back_migration(tmp_path: Path, database_url: str) -> None:

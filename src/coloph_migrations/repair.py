@@ -45,10 +45,10 @@ def repair_checksums(config: Config, *, dry_run: bool = False) -> dict:
         with psycopg.connect(config.database_url) as conn:
             for migration_version, migration in mismatches:
                 conn.execute(
-                    sql.SQL("UPDATE {} SET filename = %s, checksum = %s WHERE version = %s").format(
+                    sql.SQL("UPDATE {} SET checksum = %s WHERE version = %s").format(
                         _identifier(config.migration_table)
                     ),
-                    (migration.filename, migration.checksum, migration_version),
+                    (migration.checksum, migration_version),
                 )
             conn.commit()
     return {"repaired": repaired, "dry_run": dry_run, "postgres_version": version}

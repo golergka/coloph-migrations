@@ -156,7 +156,7 @@ def statuses(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
 
 def check_current(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
     result = statuses(conn, config)
-    problems = [item for item in result if item.status != "applied"]
+    problems = [item for item in result if item.status in {"pending", "checksum_mismatch"}]
     if problems:
         detail = ", ".join(f"{item.filename}: {item.status}" for item in problems)
         raise MigrationError(f"Migration state is not current: {detail}")
@@ -193,7 +193,7 @@ def apply(
             for migration in migrations:
                 row = existing.get(migration.version)
                 if row is not None:
-                    if row["filename"] != migration.filename or row["checksum"] != migration.checksum:
+                    if row["checksum"] != migration.checksum:
                         raise MigrationError(
                             f"Applied migration {migration.version} differs from {migration.filename}; "
                             "run repair-checksums only after proving schema equivalence"
