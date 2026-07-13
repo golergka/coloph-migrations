@@ -163,6 +163,34 @@ def check_current(conn: psycopg.Connection, config: Config) -> list[MigrationSta
     return result
 
 
+def plan(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
+    """Return pending work while preserving the legacy dry-run contract.
+
+    Pending migrations are reported, not rejected. Applied checksum drift is
+    fatal. The session advisory lock keeps the answer consistent with a
+    concurrent apply, matching the old Coloph dry-run behavior.
+    """
+    _ensure_table(conn, config)
+    with conn.cursor() as cur:
+        cur.execute("SET lock_timeout = '5s'")
+        cur.execute("SELECT pg_advisory_lock(hashtext(%s))", (config.advisory_lock_name,))
+    try:
+        result = statuses(conn, config)
+        mismatches = [item for item in result if item.status == "checksum_mismatch"]
+        if mismatches:
+            detail = ", ".join(item.filename for item in mismatches)
+            raise MigrationError(
+                f"Applied migration checksum mismatch: {detail}; "
+                "run repair-checksums only after proving schema equivalence"
+            )
+        return result
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
+            cur.execute("RESET lock_timeout")
+        conn.commit()
+
+
 def _read_optional(path: Path | None) -> str | None:
     return path.read_text(encoding="utf-8") if path is not None else None
 
