@@ -1,0 +1,12 @@
+migrations_dir = "migrations"
+schema_snapshot = "migrations/schema.sql"
+migration_table = "schema_migrations"
+legacy_migration_table = "old_schema_migrations"
+before_each_migration_sql = "migrations/before_each.sql"
+after_each_migration_sql = "migrations/after_each.sql"
+main_ref = "main"
+deployed_ref = "deployed"
+postgres_image = "pgvector/pgvector:pg17"
+backwards_setup_command = ["uv", "sync"]
+backwards_test_command = ["uv", "run", "pytest", "tests/smoke"]
+backwards_database_url_env = "TEST_DATABASE_URL"
