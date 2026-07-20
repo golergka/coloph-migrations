@@ -21,6 +21,7 @@ class Config:
     deployed_ref: str = "deployed"
     deployed_fetch_remote: str | None = None
     postgres_image: str = "pgvector/pgvector:pg17"
+    test_cluster_url_env: str | None = None
     migration_table: str = "schema_migrations"
     advisory_lock_name: str = "schema_migrations"
     legacy_migration_table: str | None = None
