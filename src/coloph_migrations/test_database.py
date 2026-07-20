@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import os
+import time
 import uuid
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
@@ -35,7 +35,7 @@ def _database_url(cluster_url: str, database: str) -> str:
 
 @contextmanager
 def _remote_temporary_database(cluster_url: str) -> Iterator[str]:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    timestamp = int(time.time())
     name = f"kbtest_{timestamp}_{uuid.uuid4().hex}"
     with psycopg.connect(cluster_url, autocommit=True) as admin:
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
