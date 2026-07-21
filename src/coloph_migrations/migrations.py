@@ -195,6 +195,27 @@ def _read_optional(path: Path | None) -> str | None:
     return path.read_text(encoding="utf-8") if path is not None else None
 
 
+def _run_after_hook(conn: psycopg.Connection, cur: psycopg.Cursor, config: Config, after_sql: str) -> None:
+    for attempt in range(config.post_max_attempts):
+        try:
+            cur.execute(
+                "SELECT set_config('statement_timeout', %s, true)",
+                (f"{config.post_statement_timeout_seconds}s",),
+            )
+            cur.execute(
+                "SELECT set_config('lock_timeout', %s, true)",
+                (f"{config.post_lock_timeout_seconds}s",),
+            )
+            cur.execute(after_sql)
+            conn.commit()
+            break
+        except psycopg.errors.LockNotAvailable:
+            conn.rollback()
+            if attempt == config.post_max_attempts - 1:
+                raise
+            time.sleep(config.retry_sleep_seconds)
+
+
 def apply(
     config: Config,
     *,
@@ -291,25 +312,8 @@ def apply(
                 if migration.filename in skipped_names:
                     continue
 
-                if after_sql:
-                    for attempt in range(config.post_max_attempts):
-                        try:
-                            cur.execute(
-                                "SELECT set_config('statement_timeout', %s, true)",
-                                (f"{config.post_statement_timeout_seconds}s",),
-                            )
-                            cur.execute(
-                                "SELECT set_config('lock_timeout', %s, true)",
-                                (f"{config.post_lock_timeout_seconds}s",),
-                            )
-                            cur.execute(after_sql)
-                            conn.commit()
-                            break
-                        except psycopg.errors.LockNotAvailable:
-                            conn.rollback()
-                            if attempt == config.post_max_attempts - 1:
-                                raise
-                            time.sleep(config.retry_sleep_seconds)
+                if after_sql and not reconstruction:
+                    _run_after_hook(conn, cur, config, after_sql)
                 applied_names.append(migration.filename)
 
                 if reconstruction and config.fresh_vacuum_after_each_migration:
@@ -318,6 +322,9 @@ def apply(
                         cur.execute("VACUUM")
                     finally:
                         conn.autocommit = False
+
+            if after_sql and reconstruction and (applied_names or skipped_names):
+                _run_after_hook(conn, cur, config, after_sql)
 
             if not skip_advisory_lock:
                 cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
