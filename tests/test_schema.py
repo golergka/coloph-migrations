@@ -1,4 +1,4 @@
-from coloph_migrations.schema import normalize_schema, restore_schema_doc_comments, strip_top_level_comments
+from coloph_migrations.schema import _pg_dump_command, normalize_schema, restore_schema_doc_comments, strip_top_level_comments
 
 
 def test_normalize_schema_sorts_blocks_and_preserves_function_body_comments() -> None:
@@ -26,3 +26,23 @@ def test_restore_schema_doc_comments() -> None:
     assert count == 1
     assert restored.startswith("-- schema-doc: code: widgets.py\n")
     assert strip_top_level_comments(restored) == generated
+
+
+def test_pg_dump_command_keeps_local_dump_without_ssl() -> None:
+    command = _pg_dump_command("postgresql://test:secret@localhost:5432/widgets", 17, [])
+
+    assert "PGSSLMODE=disable" in command
+    assert "--network=host" not in command
+
+
+def test_pg_dump_command_preserves_remote_sslmode_and_root_cert(tmp_path, monkeypatch) -> None:
+    rootcert = tmp_path / ".postgresql" / "root.crt"
+    rootcert.parent.mkdir()
+    rootcert.write_text("certificate", encoding="utf-8")
+    monkeypatch.setattr("coloph_migrations.schema.Path.home", lambda: tmp_path)
+
+    command = _pg_dump_command("postgresql://test:secret@example.test:5432/widgets?sslmode=verify-full", 17, [])
+
+    assert "PGSSLMODE=verify-full" in command
+    assert "--volume" in command
+    assert f"{rootcert}:/root/.postgresql/root.crt:ro" in command
