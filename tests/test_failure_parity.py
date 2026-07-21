@@ -172,6 +172,28 @@ $$;
         assert conn.execute("SELECT count(*) FROM hook_runs").fetchone()[0] == 1
 
 
+def test_reconstruction_after_hook_can_run_at_configured_checkpoint(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer PRIMARY KEY);\n")
+    _write(
+        config,
+        "0002_requires_checkpoint.sql",
+        "INSERT INTO widgets(id, hook_marker) VALUES (1, 'checkpoint');\n",
+    )
+    after = tmp_path / "after.sql"
+    after.write_text("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS hook_marker text;\n", encoding="utf-8")
+    config = replace(
+        config,
+        after_each_migration_sql=after,
+        reconstruction_after_hook_versions=("0001",),
+    )
+
+    apply(config, reconstruction=True)
+
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT hook_marker FROM widgets WHERE id = 1").fetchone()[0] == "checkpoint"
+
+
 def test_validate_detects_schema_drift(tmp_path: Path, database_url: str) -> None:
     config = _config(tmp_path, database_url)
     _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")

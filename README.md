@@ -33,8 +33,9 @@ deployed_fetch_remote = "origin" # optional; refresh tags before backwards check
 
 # Optional. The before file runs in the migration transaction. During normal
 # apply, the after file runs in a separate transaction after each migration is
-# recorded and committed. During reconstruction, the after file runs once after
-# the selected schema is fully rebuilt.
+# recorded and committed. During reconstruction, the after file runs at any
+# configured checkpoint versions and once after the selected schema is fully
+# rebuilt.
 before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
 
@@ -43,6 +44,7 @@ after_each_migration_sql = "migrations/after_each.sql"
 fresh_skip_feature_not_supported = true
 fresh_statement_timeout_seconds = 90
 fresh_vacuum_after_each_migration = true
+reconstruction_after_hook_versions = ["0186"]
 ```
 
 Use an ignored `coloph-migrations.local.toml` for credentials and local
@@ -66,10 +68,12 @@ coloph-migrate check-backwards
 Pass `--json` for stable machine-readable output.
 
 `apply --reconstruction` activates only the configured disposable-database
-policies. It applies the selected migration prefix and then runs the configured
-after hook once against the rebuilt schema, so historical reconstructions do
-not repeatedly validate intermediate schemas. Ordinary production `apply`
-remains fail-loud and keeps per-migration after hooks.
+policies. It applies the selected migration prefix, runs the configured after
+hook at explicit checkpoint versions, and then runs it once against the rebuilt
+schema. This keeps historical reconstructions from repeatedly validating every
+intermediate schema while preserving known migration-chain dependencies.
+Ordinary production `apply` remains fail-loud and keeps per-migration after
+hooks.
 
 ## Coloph dependency workflow
 

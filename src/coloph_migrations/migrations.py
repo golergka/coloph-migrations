@@ -314,6 +314,8 @@ def apply(
 
                 if after_sql and not reconstruction:
                     _run_after_hook(conn, cur, config, after_sql)
+                elif after_sql and migration.version in config.reconstruction_after_hook_versions:
+                    _run_after_hook(conn, cur, config, after_sql)
                 applied_names.append(migration.filename)
 
                 if reconstruction and config.fresh_vacuum_after_each_migration:
