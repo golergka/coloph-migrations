@@ -1,4 +1,15 @@
-from coloph_migrations.schema import _pg_dump_command, normalize_schema, restore_schema_doc_comments, strip_top_level_comments
+import subprocess
+
+import pytest
+
+from coloph_migrations.migrations import MigrationError
+from coloph_migrations.schema import (
+    _pg_dump,
+    _pg_dump_command,
+    normalize_schema,
+    restore_schema_doc_comments,
+    strip_top_level_comments,
+)
 
 
 def test_normalize_schema_sorts_blocks_and_preserves_function_body_comments() -> None:
@@ -46,3 +57,13 @@ def test_pg_dump_command_preserves_remote_sslmode_and_root_cert(tmp_path, monkey
     assert "PGSSLMODE=verify-full" in command
     assert "--volume" in command
     assert f"{rootcert}:/root/.postgresql/root.crt:ro" in command
+
+
+def test_pg_dump_failure_reports_image_without_name_error(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "coloph_migrations.schema.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, stdout="", stderr="pg_hba rejects connection"),
+    )
+
+    with pytest.raises(MigrationError, match="pg_dump failed using pgvector/pgvector:pg17: pg_hba rejects connection"):
+        _pg_dump("postgresql://test:secret@example.test/widgets?sslmode=verify-full", 17, [])

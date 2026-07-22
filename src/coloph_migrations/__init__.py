@@ -3,4 +3,4 @@
 Only the command-line interface is a stable public contract.
 """
 
-__version__ = "0.2.7"
+__version__ = "0.2.8"

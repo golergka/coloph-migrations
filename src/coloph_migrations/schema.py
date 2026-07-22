@@ -79,6 +79,7 @@ def _pg_dump_command(database_url: str, pg_version: int, exclude_tables: list[st
 
 
 def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> str:
+    image = "pgvector/pgvector:pg17" if pg_version == 17 else f"postgres:{pg_version}"
     command = _pg_dump_command(database_url, pg_version, exclude_tables)
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=600)
