@@ -16,11 +16,28 @@ def _config() -> Config:
     )
 
 
-def test_missing_configured_cluster_fails_closed(monkeypatch):
+def test_missing_configured_cluster_uses_local_docker(monkeypatch):
     monkeypatch.delenv("TEST_CLUSTER_DSN", raising=False)
-    with pytest.raises(ValueError, match="TEST_CLUSTER_DSN is required"):
-        with test_database.temporary_database(_config()):
-            pass
+
+    observed = []
+
+    class Container:
+        def __init__(self, **kwargs):
+            observed.append(kwargs)
+
+        def start(self):
+            observed.append("start")
+
+        def get_connection_url(self):
+            return "postgresql://local/test"
+
+        def stop(self):
+            observed.append("stop")
+
+    monkeypatch.setattr(test_database, "PostgresContainer", Container)
+    with test_database.temporary_database(_config()) as database_url:
+        assert database_url == "postgresql://local/test"
+    assert observed[1:] == ["start", "stop"]
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ main_ref = "main"
 deployed_ref = "deployed"
 deployed_fetch_remote = "origin"
 postgres_image = "pgvector/pgvector:pg17"
+test_cluster_url_env = "TEST_POSTGRES_CLUSTER_DSN"
 fresh_skip_feature_not_supported = false
 fresh_statement_timeout_seconds = 90
 fresh_vacuum_after_each_migration = false

@@ -45,6 +45,11 @@ fresh_skip_feature_not_supported = true
 fresh_statement_timeout_seconds = 90
 fresh_vacuum_after_each_migration = true
 reconstruction_after_hook_versions = ["0186"]
+
+# Optional. Fresh databases use local Docker when this environment variable is
+# absent or set to "local-docker". A PostgreSQL URL selects a shared cluster;
+# remote URLs must use sslmode=verify-full.
+test_cluster_url_env = "TEST_POSTGRES_CLUSTER_DSN"
 ```
 
 Use an ignored `coloph-migrations.local.toml` for credentials and local

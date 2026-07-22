@@ -49,9 +49,7 @@ def _remote_temporary_database(cluster_url: str) -> Iterator[str]:
 @contextmanager
 def temporary_database(config: Config) -> Iterator[str]:
     if config.test_cluster_url_env:
-        configured = os.environ.get(config.test_cluster_url_env)
-        if not configured:
-            raise ValueError(f"{config.test_cluster_url_env} is required")
+        configured = os.environ.get(config.test_cluster_url_env, LOCAL_DOCKER)
         if configured != LOCAL_DOCKER:
             with _remote_temporary_database(_remote_cluster_url(configured)) as database_url:
                 yield database_url
