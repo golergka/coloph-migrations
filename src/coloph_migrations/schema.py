@@ -4,7 +4,8 @@ import difflib
 import platform
 import re
 import subprocess
-from urllib.parse import urlparse
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 import psycopg
 
@@ -38,17 +39,24 @@ def _child_partitions(database_url: str) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> str:
+def _pg_dump_command(database_url: str, pg_version: int, exclude_tables: list[str]) -> list[str]:
     parsed = urlparse(database_url)
+    query = parse_qs(parsed.query)
+    sslmode = query.get("sslmode", ["disable"])[0]
+    sslrootcert = query.get("sslrootcert", [None])[0]
     host = parsed.hostname or "localhost"
     docker_host = "host.docker.internal" if host in {"localhost", "127.0.0.1", "::1"} else host
     docker_args: list[str] = []
     if platform.system() == "Linux" and host in {"localhost", "127.0.0.1", "::1"}:
         docker_args = ["--network=host"]
         docker_host = host
+    if sslmode in {"verify-ca", "verify-full"}:
+        rootcert = Path(unquote(sslrootcert)).expanduser() if sslrootcert else Path.home() / ".postgresql" / "root.crt"
+        if rootcert.exists():
+            docker_args.extend(["--volume", f"{rootcert}:/root/.postgresql/root.crt:ro"])
     image = "pgvector/pgvector:pg17" if pg_version == 17 else f"postgres:{pg_version}"
     exclude_args = [value for table in exclude_tables for value in ("--exclude-table", table)]
-    command = [
+    return [
         "docker",
         "run",
         "--rm",
@@ -56,7 +64,7 @@ def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> s
         "-e",
         f"PGPASSWORD={parsed.password or ''}",
         "-e",
-        "PGSSLMODE=disable",
+        f"PGSSLMODE={sslmode}",
         image,
         "pg_dump",
         f"--host={docker_host}",
@@ -68,6 +76,11 @@ def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> s
         "--no-privileges",
         *exclude_args,
     ]
+
+
+def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> str:
+    image = "pgvector/pgvector:pg17" if pg_version == 17 else f"postgres:{pg_version}"
+    command = _pg_dump_command(database_url, pg_version, exclude_tables)
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired as exc:

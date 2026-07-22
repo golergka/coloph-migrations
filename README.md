@@ -31,8 +31,11 @@ main_ref = "main"
 deployed_ref = "deployed"
 deployed_fetch_remote = "origin" # optional; refresh tags before backwards check
 
-# Optional. The before file runs in the migration transaction. The after file
-# runs in a separate transaction after the migration is recorded and committed.
+# Optional. The before file runs in the migration transaction. During normal
+# apply, the after file runs in a separate transaction after each migration is
+# recorded and committed. During reconstruction, the after file runs at any
+# configured checkpoint versions and once after the selected schema is fully
+# rebuilt.
 before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
 
@@ -41,6 +44,7 @@ after_each_migration_sql = "migrations/after_each.sql"
 fresh_skip_feature_not_supported = true
 fresh_statement_timeout_seconds = 90
 fresh_vacuum_after_each_migration = true
+reconstruction_after_hook_versions = ["0186"]
 ```
 
 Use an ignored `coloph-migrations.local.toml` for credentials and local
@@ -52,6 +56,7 @@ set `COLOPH_MIGRATIONS_DATABASE_URL` instead of storing `database_url` or passin
 ```text
 coloph-migrate apply
 coloph-migrate list
+coloph-migrate plan
 coloph-migrate check
 coloph-migrate snapshot
 coloph-migrate validate
@@ -63,7 +68,20 @@ coloph-migrate check-backwards
 Pass `--json` for stable machine-readable output.
 
 `apply --reconstruction` activates only the configured disposable-database
-policies. Ordinary production `apply` remains fail-loud.
+policies. It applies the selected migration prefix, runs the configured after
+hook at explicit checkpoint versions, and then runs it once against the rebuilt
+schema. This keeps historical reconstructions from repeatedly validating every
+intermediate schema while preserving known migration-chain dependencies.
+Ordinary production `apply` remains fail-loud and keeps per-migration after
+hooks.
+
+## Coloph dependency workflow
+
+When Coloph needs a `coloph-migrations` behavior change, edit this package
+directly in its local checkout, test it here, commit and push the package
+change, then update Coloph's pinned Git dependency and lockfile to that exact
+commit. Do not patch installed site-packages or work around dependency behavior
+inside Coloph.
 
 The test suite deliberately exercises broken numbering, explicit transaction
 control, failed migration rollback, pre/post-hook transaction boundaries,
