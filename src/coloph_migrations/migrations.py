@@ -216,6 +216,97 @@ def _run_after_hook(conn: psycopg.Connection, cur: psycopg.Cursor, config: Confi
             time.sleep(config.retry_sleep_seconds)
 
 
+def _sql_literal(conn: psycopg.Connection, value: object) -> str:
+    return sql.Literal(value).as_string(conn)
+
+
+def _append_reconstruction_hook(statements: list[str], conn: psycopg.Connection, config: Config, after_sql: str) -> None:
+    statements.extend(
+        [
+            "BEGIN;",
+            (
+                "SELECT set_config('statement_timeout', "
+                f"{_sql_literal(conn, f'{config.post_statement_timeout_seconds}s')}, true);"
+            ),
+            (
+                "SELECT set_config('lock_timeout', "
+                f"{_sql_literal(conn, f'{config.post_lock_timeout_seconds}s')}, true);"
+            ),
+            after_sql,
+            "COMMIT;",
+        ]
+    )
+
+
+def _apply_reconstruction_batch(
+    conn: psycopg.Connection,
+    config: Config,
+    migrations: list[Migration],
+    before_sql: str | None,
+    after_sql: str | None,
+) -> tuple[list[str], list[str]]:
+    """Apply an isolated rebuild without paying a network round trip per command.
+
+    Every migration remains its own PostgreSQL transaction. ClientCursor uses
+    PostgreSQL's simple-query protocol, so the whole ordered script crosses a
+    remote test-cluster link once while each explicit COMMIT is still honored.
+    """
+    applied_names: list[str] = []
+    skipped_names: list[str] = []
+    statements: list[str] = []
+
+    for index, migration in enumerate(migrations):
+        statements.extend(
+            [
+                (
+                    "SELECT set_config('lock_timeout', "
+                    f"{_sql_literal(conn, f'{config.apply_lock_timeout_seconds}s')}, true);"
+                ),
+                f"SELECT set_config('app.operation_name', {_sql_literal(conn, f'migration.{migration.version}')}, true);",
+            ]
+        )
+        if before_sql:
+            statements.append(before_sql)
+        statements.extend(
+            [
+                (
+                    "SELECT set_config('statement_timeout', "
+                    f"{_sql_literal(conn, f'{config.fresh_statement_timeout_seconds}s')}, true);"
+                ),
+                migration.sql,
+                (
+                    f"INSERT INTO {_identifier(config.migration_table).as_string(conn)} "
+                    "(version, filename, checksum) VALUES "
+                    f"({_sql_literal(conn, migration.version)}, {_sql_literal(conn, migration.filename)}, "
+                    f"{_sql_literal(conn, migration.checksum)});"
+                ),
+                "COMMIT;",
+            ]
+        )
+        applied_names.append(migration.filename)
+        if after_sql and migration.version in config.reconstruction_after_hook_versions:
+            _append_reconstruction_hook(statements, conn, config, after_sql)
+        if index < len(migrations) - 1:
+            statements.append("BEGIN;")
+
+    if after_sql and applied_names:
+        _append_reconstruction_hook(statements, conn, config, after_sql)
+
+    if statements:
+        with psycopg.ClientCursor(conn) as cur:
+            cur.execute("\n".join(statements))
+
+    if config.fresh_vacuum_after_each_migration and applied_names:
+        conn.autocommit = True
+        try:
+            with conn.cursor() as cur:
+                cur.execute("VACUUM")
+        finally:
+            conn.autocommit = False
+
+    return applied_names, skipped_names
+
+
 def apply(
     config: Config,
     *,
@@ -238,6 +329,29 @@ def apply(
                 cur.execute("SELECT pg_advisory_lock(hashtext(%s))", (config.advisory_lock_name,))
             rows = _applied(conn, config)
             existing = {str(row["version"]): row for row in rows}
+
+            if reconstruction:
+                pending = []
+                for migration in migrations:
+                    row = existing.get(migration.version)
+                    if row is not None:
+                        if row["checksum"] != migration.checksum:
+                            raise MigrationError(
+                                f"Applied migration {migration.version} differs from {migration.filename}; "
+                                "run repair-checksums only after proving schema equivalence"
+                            )
+                        continue
+                    pending.append(migration)
+                applied_names, skipped_names = _apply_reconstruction_batch(conn, config, pending, before_sql, after_sql)
+                if not skip_advisory_lock:
+                    cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
+                    conn.commit()
+                return {
+                    "applied": applied_names,
+                    "applied_count": len(applied_names),
+                    "skipped": skipped_names,
+                    "skipped_count": len(skipped_names),
+                }
 
             for migration in migrations:
                 row = existing.get(migration.version)

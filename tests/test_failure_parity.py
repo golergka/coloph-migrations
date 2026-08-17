@@ -194,6 +194,19 @@ def test_reconstruction_after_hook_can_run_at_configured_checkpoint(tmp_path: Pa
         assert conn.execute("SELECT hook_marker FROM widgets WHERE id = 1").fetchone()[0] == "checkpoint"
 
 
+def test_reconstruction_preserves_committed_predecessors_on_later_failure(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    _write(config, "0002_broken.sql", "SELECT missing_column;\n")
+
+    with pytest.raises(psycopg.errors.UndefinedColumn):
+        apply(config, reconstruction=True)
+
+    assert _regclass(database_url, "widgets") == "widgets"
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall() == [("0001",)]
+
+
 def test_validate_detects_schema_drift(tmp_path: Path, database_url: str) -> None:
     config = _config(tmp_path, database_url)
     _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
