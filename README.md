@@ -48,7 +48,8 @@ reconstruction_after_hook_versions = ["0186"]
 
 # Optional. Fresh databases use local Docker when this environment variable is
 # absent or set to "local-docker". A PostgreSQL URL selects a shared cluster;
-# remote URLs must use sslmode=verify-full.
+# non-loopback URLs must use sslmode=verify-full. Loopback URLs can use the
+# caller's SSL mode so an authenticated local TCP proxy remains transparent.
 test_cluster_url_env = "TEST_POSTGRES_CLUSTER_DSN"
 ```
 

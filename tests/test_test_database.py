@@ -53,6 +53,14 @@ def test_remote_cluster_validation(value, message):
         test_database._remote_cluster_url(value)
 
 
+@pytest.mark.parametrize("hostname", ["127.0.0.1", "localhost", "::1"])
+def test_loopback_cluster_accepts_caller_ssl_mode(hostname):
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    value = f"postgresql://test@{host}:55434/postgres?sslmode=disable"
+
+    assert test_database._remote_cluster_url(value) == value
+
+
 def test_local_docker_sentinel_uses_container(monkeypatch):
     observed = []
 

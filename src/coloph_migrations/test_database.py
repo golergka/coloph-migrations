@@ -23,7 +23,8 @@ def _remote_cluster_url(value: str) -> str:
         raise ValueError("The configured test cluster must be a PostgreSQL URL or 'local-docker'")
     if parsed.path not in {"", "/", "/postgres"}:
         raise ValueError("The configured test cluster URL must connect to the postgres database")
-    if parse_qs(parsed.query).get("sslmode") != ["verify-full"]:
+    is_loopback = parsed.hostname in {"127.0.0.1", "::1", "localhost"}
+    if not is_loopback and parse_qs(parsed.query).get("sslmode") != ["verify-full"]:
         raise ValueError("Remote test cluster URLs must include sslmode=verify-full")
     return urlunsplit((parsed.scheme, parsed.netloc, "/postgres", parsed.query, parsed.fragment))
 
