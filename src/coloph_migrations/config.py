@@ -63,6 +63,11 @@ _TUPLE_FIELDS = {
     "backwards_test_globs",
     "backwards_test_args",
 }
+_POSITIVE_INTEGER_FIELDS = {
+    "apply_max_attempts",
+    "post_max_attempts",
+    "concurrent_ddl_max_attempts",
+}
 
 
 def _read_toml(path: Path) -> dict[str, object]:
@@ -115,6 +120,10 @@ def load_config(path: Path | None = None) -> Config:
             if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
                 raise ValueError(f"{name} must be an array of strings")
             values[name] = tuple(value)
+        elif name in _POSITIVE_INTEGER_FIELDS:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+            values[name] = value
         else:
             values[name] = value
     return Config(**values)

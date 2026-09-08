@@ -4,7 +4,7 @@ import difflib
 import platform
 import re
 import subprocess
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import psycopg
 
@@ -39,7 +39,7 @@ def _child_partitions(database_url: str) -> list[str]:
 
 
 def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> str:
-    parsed = urlparse(database_url)
+    parsed = urlsplit(database_url)
     host = parsed.hostname or "localhost"
     docker_host = "host.docker.internal" if host in {"localhost", "127.0.0.1", "::1"} else host
     docker_args: list[str] = []
@@ -48,21 +48,28 @@ def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> s
         docker_host = host
     image = "pgvector/pgvector:pg17" if pg_version == 17 else f"postgres:{pg_version}"
     exclude_args = [value for table in exclude_tables for value in ("--exclude-table", table)]
+    username = parsed.username
+    userinfo = f"{quote(unquote(username), safe='')}@" if username else ""
+    host_for_url = f"[{docker_host}]" if ":" in docker_host else docker_host
+    dump_url = urlunsplit(
+        (
+            parsed.scheme,
+            f"{userinfo}{host_for_url}:{parsed.port or 5432}",
+            parsed.path,
+            parsed.query,
+            "",
+        )
+    )
     command = [
         "docker",
         "run",
         "--rm",
         *docker_args,
         "-e",
-        f"PGPASSWORD={parsed.password or ''}",
-        "-e",
-        "PGSSLMODE=disable",
+        f"PGPASSWORD={unquote(parsed.password or '')}",
         image,
         "pg_dump",
-        f"--host={docker_host}",
-        f"--port={parsed.port or 5432}",
-        f"--username={parsed.username or ''}",
-        f"--dbname={parsed.path.lstrip('/')}",
+        f"--dbname={dump_url}",
         "--schema-only",
         "--no-owner",
         "--no-privileges",

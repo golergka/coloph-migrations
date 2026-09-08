@@ -39,11 +39,15 @@ def find_conflicts(main_names: list[str], current_names: list[str], deployed_nam
     current = _by_version(current_names)
     deployed = _by_version(deployed_names)
     conflicts: list[str] = []
+    for version, deployed_name in sorted(deployed.items()):
+        current_name = current.get(version)
+        if current_name is None:
+            conflicts.append(f"Current tree is missing deployed migration {deployed_name}")
+        elif current_name != deployed_name:
+            conflicts.append(f"Migration {version:04d} conflicts: current={current_name}, deployed={deployed_name}")
     for version, main_name in sorted(main.items()):
         current_name = current.get(version)
-        if current_name is None and deployed.get(version) == main_name:
-            conflicts.append(f"Current tree is missing deployed migration {main_name}")
-        elif current_name is not None and current_name != main_name:
+        if current_name is not None and current_name != main_name:
             conflicts.append(f"Migration {version:04d} conflicts: current={current_name}, main={main_name}")
     for version in sorted(set(current) - set(main)):
         if version < max(main, default=0):

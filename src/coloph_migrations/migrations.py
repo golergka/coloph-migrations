@@ -195,6 +195,12 @@ def _read_optional(path: Path | None) -> str | None:
     return path.read_text(encoding="utf-8") if path is not None else None
 
 
+def _positive_attempt_count(name: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise MigrationError(f"{name} must be a positive integer")
+    return value
+
+
 def apply(
     config: Config,
     *,
@@ -207,6 +213,13 @@ def apply(
     migrations = discover_migrations(config.migrations_dir, up_to=up_to)
     before_sql = _read_optional(config.before_each_migration_sql)
     after_sql = _read_optional(config.after_each_migration_sql)
+    apply_max_attempts = _positive_attempt_count("apply_max_attempts", config.apply_max_attempts)
+    post_max_attempts = _positive_attempt_count("post_max_attempts", config.post_max_attempts) if after_sql else 0
+    concurrent_ddl_max_attempts = (
+        _positive_attempt_count("concurrent_ddl_max_attempts", config.concurrent_ddl_max_attempts)
+        if reconstruction
+        else 0
+    )
     applied_names: list[str] = []
     skipped_names: list[str] = []
 
@@ -229,9 +242,9 @@ def apply(
                     continue
 
                 max_attempts = (
-                    config.concurrent_ddl_max_attempts
+                    concurrent_ddl_max_attempts
                     if reconstruction and migration.version in config.concurrent_ddl_retry_versions
-                    else config.apply_max_attempts
+                    else apply_max_attempts
                 )
                 for attempt in range(max_attempts):
                     try:
@@ -292,7 +305,7 @@ def apply(
                     continue
 
                 if after_sql:
-                    for attempt in range(config.post_max_attempts):
+                    for attempt in range(post_max_attempts):
                         try:
                             cur.execute(
                                 "SELECT set_config('statement_timeout', %s, true)",
@@ -307,7 +320,7 @@ def apply(
                             break
                         except psycopg.errors.LockNotAvailable:
                             conn.rollback()
-                            if attempt == config.post_max_attempts - 1:
+                            if attempt == post_max_attempts - 1:
                                 raise
                             time.sleep(config.retry_sleep_seconds)
                 applied_names.append(migration.filename)

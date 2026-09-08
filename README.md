@@ -1,27 +1,79 @@
 # Coloph Migrations
 
-`coloph-migrate` is an opinionated PostgreSQL migration CLI extracted from the
-production deployment workflow used by Coloph.
+`coloph-migrate` is an opinionated PostgreSQL migration CLI extracted from
+Coloph's production deployment workflow. It uses sequential SQL migrations,
+immutable applied checksums, and canonical schema snapshots. The CLI is the
+public interface; Python modules are internal.
 
-It keeps migrations agent-friendly by making the current schema inspectable and
-the dangerous states explicit:
+## Quick start
 
-- sequential numbered SQL files with no gaps;
-- immutable checksums for applied migrations;
-- one transaction per migration;
-- optional SQL before each migration and after each committed migration;
-- canonical, deterministic `schema.sql` snapshots;
-- reconstruction and schema-equivalence validation in disposable PostgreSQL;
-- checksum repair only after schema equivalence is proven;
-- migration-chain collision checks against Git refs;
-- old-code/new-schema compatibility checks before deployment.
+Add it to the repository's development dependencies (and commit the updated
+`pyproject.toml` and lockfile):
 
-The supported public interface is the CLI. Python modules are implementation
-details and may change without notice.
+```sh
+uv add --dev coloph-migrations
+```
+
+Then add `coloph-migrations.toml` at the repository root:
+
+```toml
+migrations_dir = "migrations"
+schema_snapshot = "migrations/schema.sql"
+database_url = "postgresql://postgres:postgres@localhost:5432/app"
+```
+
+Create a numbered migration, inspect it, and apply it:
+
+```sh
+mkdir -p migrations
+printf 'CREATE TABLE account (id bigint PRIMARY KEY);\n' > migrations/001_create_account.sql
+uv run coloph-migrate plan
+uv run coloph-migrate apply
+uv run coloph-migrate snapshot
+```
+
+Use an ignored `coloph-migrations.local.toml` for local credentials and
+overrides. `COLOPH_MIGRATIONS_DATABASE_URL` keeps the URL out of files and
+process arguments.
+
+## Common workflows
+
+```sh
+# Show applied and pending migrations
+uv run coloph-migrate list
+
+# Require that every migration is applied and its checksum still matches
+uv run coloph-migrate check
+
+# Rebuild a disposable database and compare its schema to the target database
+uv run coloph-migrate validate
+
+# Regenerate schema.sql from a disposable reconstruction
+uv run coloph-migrate snapshot --fresh
+
+# Check a new migration number against main and deployed Git refs
+uv run coloph-migrate check-chain
+
+# Run deployed code against the new schema before deployment
+uv run coloph-migrate check-backwards
+```
+
+For machine-readable output, add `--json`. Use `apply --up-to 012` to stop at a
+specific version. `apply --reconstruction` enables
+only the disposable-database policies configured for reconstruction.
+
+## What it prevents
+
+| Problem | Example | Guardrail |
+| --- | --- | --- |
+| Edited history | `004_add_index.sql` changes after production applied it | `plan` and `check` reject checksum drift. |
+| Bad ordering | A branch adds `007_*.sql` while `main` already has `007_*.sql` | `check-chain` detects collisions across refs. |
+| Partial change | A migration's second statement fails | Each migration runs in one transaction, so it rolls back. |
+| Snapshot lies | `schema.sql` no longer matches executable migrations | `validate` reconstructs and compares schemas. |
+| Unsafe checksum repair | Someone wants to accept modified applied SQL | `repair-checksums` requires schema equivalence first. |
+| Unsafe deploy | New schema breaks currently deployed code | `check-backwards` tests deployed code against it. |
 
 ## Configuration
-
-Create `coloph-migrations.toml` in the repository root:
 
 ```toml
 migrations_dir = "migrations"
@@ -31,23 +83,19 @@ main_ref = "main"
 deployed_ref = "deployed"
 deployed_fetch_remote = "origin" # optional; refresh tags before backwards check
 
-# Optional. The before file runs in the migration transaction. The after file
-# runs in a separate transaction after the migration is recorded and committed.
+# Runs before a migration in its transaction, and after it in a new transaction.
 before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
 
-# Optional reconstruction-only behavior for extensions unavailable in the
-# disposable PostgreSQL image and for catalog-heavy post hooks.
+# Disposable-reconstruction options.
 fresh_skip_feature_not_supported = true
 fresh_statement_timeout_seconds = 90
 fresh_vacuum_after_each_migration = true
 ```
 
-Use an ignored `coloph-migrations.local.toml` for credentials and local
-overrides. Explicit CLI flags override both files. For credentials that must not appear in process arguments,
-set `COLOPH_MIGRATIONS_DATABASE_URL` instead of storing `database_url` or passing `--database-url`.
+Explicit CLI flags override configuration files.
 
-## Commands
+## Command reference
 
 ```text
 coloph-migrate apply
@@ -60,15 +108,6 @@ coloph-migrate repair-checksums
 coloph-migrate check-chain
 coloph-migrate check-backwards
 ```
-
-Pass `--json` for stable machine-readable output.
-
-`apply --reconstruction` activates only the configured disposable-database
-policies. Ordinary production `apply` remains fail-loud.
-
-The test suite deliberately exercises broken numbering, explicit transaction
-control, failed migration rollback, pre/post-hook transaction boundaries,
-checksum drift, schema drift, and safe-versus-unsafe checksum repair.
 
 ## License
 

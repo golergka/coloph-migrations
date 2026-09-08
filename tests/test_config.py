@@ -28,3 +28,11 @@ def test_unknown_configuration_key_fails(tmp_path: Path) -> None:
     path.write_text('mystery = "value"\n', encoding="utf-8")
     with pytest.raises(ValueError, match="Unknown configuration keys"):
         load_config(path)
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_retry_counts_must_be_positive_integers(tmp_path: Path, value: object) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(f"apply_max_attempts = {str(value).lower()}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="apply_max_attempts must be a positive integer"):
+        load_config(path)

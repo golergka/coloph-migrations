@@ -68,6 +68,17 @@ def test_checksum_drift_fails_loud(tmp_path: Path, database_url: str) -> None:
         assert statuses(conn, config)[0].status == "checksum_mismatch"
 
 
+def test_apply_rejects_zero_attempts_before_changing_database(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url, apply_max_attempts=0)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+
+    with pytest.raises(MigrationError, match="apply_max_attempts must be a positive integer"):
+        apply(config)
+
+    assert _regclass(database_url, "widgets") is None
+    assert _regclass(database_url, "schema_migrations") is None
+
+
 def test_plan_reports_pending_but_fails_checksum_drift_and_releases_lock(
     tmp_path: Path, database_url: str
 ) -> None:
