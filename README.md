@@ -11,7 +11,7 @@ Add it to the repository's development dependencies (and commit the updated
 `pyproject.toml` and lockfile):
 
 ```sh
-uv add --dev 'coloph-migrations @ git+https://github.com/golergka/coloph-migrations@v0.2.11'
+uv add --dev coloph-migrations
 ```
 
 Then add `coloph-migrations.toml` at the repository root:
