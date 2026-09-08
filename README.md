@@ -14,6 +14,13 @@ Add it to the repository's development dependencies (and commit the updated
 uv add --dev coloph-migrations
 ```
 
+The lockfile records the exact package version. To run a fixed version without
+adding a dependency, replace `VERSION` in this command:
+
+```sh
+uvx --from 'coloph-migrations==VERSION' coloph-migrate --help
+```
+
 Then add `coloph-migrations.toml` at the repository root:
 
 ```toml
