@@ -17,10 +17,12 @@ class Config:
     database_url: str | None = None
     before_each_migration_sql: Path | None = None
     after_each_migration_sql: Path | None = None
+    reconstruction_after_hook_versions: tuple[str, ...] = ()
     main_ref: str = "main"
     deployed_ref: str = "deployed"
     deployed_fetch_remote: str | None = None
     postgres_image: str = "pgvector/pgvector:pg17"
+    test_cluster_url_env: str | None = None
     migration_table: str = "schema_migrations"
     advisory_lock_name: str = "schema_migrations"
     legacy_migration_table: str | None = None
@@ -58,6 +60,7 @@ _PATH_FIELDS = {
 _TUPLE_FIELDS = {
     "exclude_index_patterns",
     "concurrent_ddl_retry_versions",
+    "reconstruction_after_hook_versions",
     "backwards_test_command",
     "backwards_setup_command",
     "backwards_test_globs",

@@ -4,7 +4,8 @@ import difflib
 import platform
 import re
 import subprocess
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from pathlib import Path
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 import psycopg
 
@@ -38,14 +39,25 @@ def _child_partitions(database_url: str) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> str:
+def _pg_dump_command(database_url: str, pg_version: int, exclude_tables: list[str]) -> list[str]:
     parsed = urlsplit(database_url)
+    query_items = parse_qsl(parsed.query, keep_blank_values=True)
+    query = dict(query_items)
+    sslmode = query.get("sslmode", "disable")
+    sslrootcert = query.get("sslrootcert")
     host = parsed.hostname or "localhost"
     docker_host = "host.docker.internal" if host in {"localhost", "127.0.0.1", "::1"} else host
     docker_args: list[str] = []
     if platform.system() == "Linux" and host in {"localhost", "127.0.0.1", "::1"}:
         docker_args = ["--network=host"]
         docker_host = host
+    if sslmode in {"verify-ca", "verify-full"}:
+        rootcert = Path(sslrootcert).expanduser() if sslrootcert else Path.home() / ".postgresql" / "root.crt"
+        if rootcert.exists():
+            docker_args.extend(["--volume", f"{rootcert}:/root/.postgresql/root.crt:ro"])
+            if sslrootcert:
+                query_items = [(key, value) for key, value in query_items if key != "sslrootcert"]
+                query_items.append(("sslrootcert", "/root/.postgresql/root.crt"))
     image = "pgvector/pgvector:pg17" if pg_version == 17 else f"postgres:{pg_version}"
     exclude_args = [value for table in exclude_tables for value in ("--exclude-table", table)]
     username = parsed.username
@@ -56,17 +68,19 @@ def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> s
             parsed.scheme,
             f"{userinfo}{host_for_url}:{parsed.port or 5432}",
             parsed.path,
-            parsed.query,
+            urlencode(query_items),
             "",
         )
     )
-    command = [
+    return [
         "docker",
         "run",
         "--rm",
         *docker_args,
         "-e",
         f"PGPASSWORD={unquote(parsed.password or '')}",
+        "-e",
+        f"PGSSLMODE={sslmode}",
         image,
         "pg_dump",
         f"--dbname={dump_url}",
@@ -75,6 +89,11 @@ def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> s
         "--no-privileges",
         *exclude_args,
     ]
+
+
+def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> str:
+    image = "pgvector/pgvector:pg17" if pg_version == 17 else f"postgres:{pg_version}"
+    command = _pg_dump_command(database_url, pg_version, exclude_tables)
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired as exc:

@@ -143,6 +143,81 @@ def test_after_hook_failure_keeps_committed_migration_but_rolls_back_hook(tmp_pa
         assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
 
 
+def test_after_hook_runs_after_each_migration_for_normal_apply(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_hook_runs.sql", "CREATE TABLE hook_runs(id bigserial PRIMARY KEY);\n")
+    _write(config, "0002_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    after = tmp_path / "after.sql"
+    after.write_text("INSERT INTO hook_runs DEFAULT VALUES;\n", encoding="utf-8")
+    config = replace(config, after_each_migration_sql=after)
+
+    apply(config)
+
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT count(*) FROM hook_runs").fetchone()[0] == 2
+
+
+def test_reconstruction_after_hook_runs_once_after_selected_schema(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_hook_runs.sql", "CREATE TABLE hook_runs(id bigserial PRIMARY KEY);\n")
+    _write(config, "0002_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    after = tmp_path / "after.sql"
+    after.write_text(
+        """
+DO $$
+BEGIN
+    IF to_regclass('widgets') IS NULL THEN
+        RAISE EXCEPTION 'final schema not visible';
+    END IF;
+    INSERT INTO hook_runs DEFAULT VALUES;
+END
+$$;
+""",
+        encoding="utf-8",
+    )
+    config = replace(config, after_each_migration_sql=after)
+
+    apply(config, reconstruction=True)
+
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT count(*) FROM hook_runs").fetchone()[0] == 1
+
+
+def test_reconstruction_after_hook_can_run_at_configured_checkpoint(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer PRIMARY KEY);\n")
+    _write(
+        config,
+        "0002_requires_checkpoint.sql",
+        "INSERT INTO widgets(id, hook_marker) VALUES (1, 'checkpoint');\n",
+    )
+    after = tmp_path / "after.sql"
+    after.write_text("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS hook_marker text;\n", encoding="utf-8")
+    config = replace(
+        config,
+        after_each_migration_sql=after,
+        reconstruction_after_hook_versions=("0001",),
+    )
+
+    apply(config, reconstruction=True)
+
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT hook_marker FROM widgets WHERE id = 1").fetchone()[0] == "checkpoint"
+
+
+def test_reconstruction_preserves_committed_predecessors_on_later_failure(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    _write(config, "0002_broken.sql", "SELECT missing_column;\n")
+
+    with pytest.raises(psycopg.errors.UndefinedColumn):
+        apply(config, reconstruction=True)
+
+    assert _regclass(database_url, "widgets") == "widgets"
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall() == [("0001",)]
+
+
 def test_validate_detects_schema_drift(tmp_path: Path, database_url: str) -> None:
     config = _config(tmp_path, database_url)
     _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")

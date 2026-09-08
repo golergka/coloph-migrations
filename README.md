@@ -11,7 +11,7 @@ Add it to the repository's development dependencies (and commit the updated
 `pyproject.toml` and lockfile):
 
 ```sh
-uv add --dev coloph-migrations
+uv add --dev 'coloph-migrations @ git+https://github.com/golergka/coloph-migrations@v0.2.11'
 ```
 
 Then add `coloph-migrations.toml` at the repository root:
@@ -58,8 +58,8 @@ uv run coloph-migrate check-chain
 uv run coloph-migrate check-backwards
 ```
 
-For machine-readable output, add `--json`. Use `apply --up-to 012` to stop at a
-specific version. `apply --reconstruction` enables
+For machine-readable output, add `--json`. Use `apply --up-to 012` to apply
+versions before `012` (the boundary is exclusive). `apply --reconstruction` enables
 only the disposable-database policies configured for reconstruction.
 
 ## What it prevents
@@ -83,7 +83,11 @@ main_ref = "main"
 deployed_ref = "deployed"
 deployed_fetch_remote = "origin" # optional; refresh tags before backwards check
 
-# Runs before a migration in its transaction, and after it in a new transaction.
+# Optional. The before file runs in the migration transaction. During normal
+# apply, the after file runs in a separate transaction after each migration is
+# recorded and committed. During reconstruction, the after file runs at any
+# configured checkpoint versions and once after the selected schema is fully
+# rebuilt.
 before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
 
@@ -91,6 +95,13 @@ after_each_migration_sql = "migrations/after_each.sql"
 fresh_skip_feature_not_supported = true
 fresh_statement_timeout_seconds = 90
 fresh_vacuum_after_each_migration = true
+reconstruction_after_hook_versions = ["0186"]
+
+# Optional. Fresh databases use local Docker when this environment variable is
+# absent or set to "local-docker". A PostgreSQL URL selects a shared cluster;
+# non-loopback URLs must use sslmode=verify-full. Loopback URLs can use the
+# caller's SSL mode so an authenticated local TCP proxy remains transparent.
+test_cluster_url_env = "TEST_POSTGRES_CLUSTER_DSN"
 ```
 
 Explicit CLI flags override configuration files.
@@ -108,6 +119,28 @@ coloph-migrate repair-checksums
 coloph-migrate check-chain
 coloph-migrate check-backwards
 ```
+
+Pass `--json` for stable machine-readable output.
+
+`apply --reconstruction` activates only the configured disposable-database
+policies. It applies the selected migration prefix, runs the configured after
+hook at explicit checkpoint versions, and then runs it once against the rebuilt
+schema. This keeps historical reconstructions from repeatedly validating every
+intermediate schema while preserving known migration-chain dependencies.
+Ordinary production `apply` remains fail-loud and keeps per-migration after
+hooks.
+
+## Coloph dependency workflow
+
+When Coloph needs a `coloph-migrations` behavior change, edit this package
+directly in its local checkout, test it here, commit and push the package
+change, then update Coloph's pinned Git dependency and lockfile to that exact
+commit. Do not patch installed site-packages or work around dependency behavior
+inside Coloph.
+
+The test suite deliberately exercises broken numbering, explicit transaction
+control, failed migration rollback, pre/post-hook transaction boundaries,
+checksum drift, schema drift, and safe-versus-unsafe checksum repair.
 
 ## License
 
