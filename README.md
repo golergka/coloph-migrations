@@ -142,6 +142,13 @@ The test suite deliberately exercises broken numbering, explicit transaction
 control, failed migration rollback, pre/post-hook transaction boundaries,
 checksum drift, schema drift, and safe-versus-unsafe checksum repair.
 
+## Public writing
+
+Do not publish links or issue references to private repositories.
+This rule applies to source files, documentation, issues, pull requests, comments, and release notes.
+Explain each problem with a self-contained example, the actual result, the expected result, and the practical impact.
+Separate proposed features from observed defects. Do not present missing tests alone as a defect.
+
 ## License
 
 GPL-3.0-only. The Coloph name and logo are not licensed for use as trademarks.
