@@ -21,19 +21,34 @@ adding a dependency, replace `VERSION` in this command:
 uvx --from 'coloph-migrations==VERSION' coloph-migrate --help
 ```
 
-Then add `coloph-migrations.toml` at the repository root:
+Initialize the migration files at the repository root:
+
+```sh
+uv run coloph-migrate init
+```
+
+This command creates these files if they do not exist:
+
+```text
+coloph-migrations.toml
+migrations/0001_init.sql
+.env
+```
+
+The generated configuration contains:
 
 ```toml
 migrations_dir = "migrations"
 schema_snapshot = "migrations/schema.sql"
-database_url = "postgresql://postgres:postgres@localhost:5432/app"
 ```
 
-Create a numbered migration, inspect it, and apply it:
+Set `DATABASE_URL` in `.env`. Process environment variables override `.env`.
+The `COLOPH_MIGRATIONS_DATABASE_URL` variable remains available as a higher-priority override.
+
+Edit the initial migration, inspect it, and apply it:
 
 ```sh
-mkdir -p migrations
-printf 'CREATE TABLE account (id bigint PRIMARY KEY);\n' > migrations/001_create_account.sql
+printf 'CREATE TABLE account (id bigint PRIMARY KEY);\n' > migrations/0001_init.sql
 uv run coloph-migrate plan
 uv run coloph-migrate apply
 uv run coloph-migrate snapshot
@@ -116,6 +131,7 @@ Explicit CLI flags override configuration files.
 ## Command reference
 
 ```text
+coloph-migrate init
 coloph-migrate apply
 coloph-migrate list
 coloph-migrate plan

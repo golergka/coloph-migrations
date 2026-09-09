@@ -1,11 +1,12 @@
 [project]
 name = "coloph-migrations"
-version = "0.2.12"
+version = "0.2.13"
 description = "Agent-friendly PostgreSQL migration CLI extracted from Coloph"
 readme = "README.md"
 license = "GPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [
+    "python-dotenv>=1.0",
     "psycopg[binary]>=3.2",
     "testcontainers[postgres]>=4.10",
 ]
