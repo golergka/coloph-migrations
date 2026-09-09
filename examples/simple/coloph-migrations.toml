@@ -1,0 +1,2 @@
+migrations_dir = "migrations"
+schema_snapshot = "migrations/schema.sql"
