@@ -80,7 +80,13 @@ uv run coloph-migrate check-chain
 uv run coloph-migrate check-backwards
 ```
 
-For machine-readable output, add `--json`. Use `apply --up-to 012` to apply
+`--json` is a global option. Put it before the command:
+
+```sh
+uv run coloph-migrate --json list
+```
+
+Use `apply --up-to 012` to apply
 versions before `012` (the boundary is exclusive). `apply --reconstruction` enables
 only the disposable-database policies configured for reconstruction.
 
@@ -143,7 +149,7 @@ coloph-migrate check-chain
 coloph-migrate check-backwards
 ```
 
-Pass `--json` for stable machine-readable output.
+Put global `--json` before the command, for example `coloph-migrate --json list`.
 
 `apply --reconstruction` activates only the configured disposable-database
 policies. It applies the selected migration prefix, runs the configured after
