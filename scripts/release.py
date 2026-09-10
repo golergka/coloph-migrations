@@ -45,6 +45,18 @@ def build(tag: str | None) -> None:
             "--no-project",
             "--with",
             str(artifact),
+            "python",
+            "-c",
+            "from importlib.metadata import version; import coloph_migrations; "
+            "assert coloph_migrations.__version__ == version('coloph-migrations')",
+        )
+        run(
+            "uv",
+            "run",
+            "--isolated",
+            "--no-project",
+            "--with",
+            str(artifact),
             "coloph-migrate",
             "--help",
         )

@@ -3,4 +3,7 @@
 Only the command-line interface is a stable public contract.
 """
 
-__version__ = "0.2.8"
+from importlib.metadata import version
+
+
+__version__ = version("coloph-migrations")
