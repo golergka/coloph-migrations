@@ -41,7 +41,7 @@ def test_restore_schema_doc_comments() -> None:
     assert strip_top_level_comments(restored) == generated
 
 
-def test_pg_dump_preserves_url_options_and_decodes_password(monkeypatch) -> None:
+def test_pg_dump_keeps_password_out_of_command_arguments(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_run(command, **kwargs):
@@ -58,7 +58,9 @@ def test_pg_dump_preserves_url_options_and_decodes_password(monkeypatch) -> None
     )
 
     command = captured["command"]
-    assert "PGPASSWORD=pa@ss" in command
+    assert all("pa@ss" not in arg for arg in command)
+    assert "PGPASSWORD" in command
+    assert captured["kwargs"]["env"]["PGPASSWORD"] == "pa@ss"
     assert "PGSSLMODE=disable" not in command
     assert (
         "--dbname=postgresql://user@database.example:5432/app%2Fname?sslmode=require&application_name=snapshot"
@@ -106,7 +108,8 @@ def test_pg_dump_maps_explicit_certificate_and_preserves_other_options(tmp_path)
         [],
     )
     assert f"{certificate}:/root/.postgresql/root.crt:ro" in command
-    assert "PGPASSWORD=pa@ss" in command
+    assert all("pa@ss" not in arg for arg in command)
+    assert "PGPASSWORD" in command
     dump_url = next(arg.removeprefix("--dbname=") for arg in command if arg.startswith("--dbname="))
     assert parse_qs(urlsplit(dump_url).query) == {
         "sslmode": ["verify-full"],
