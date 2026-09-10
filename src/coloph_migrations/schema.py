@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import os
 import platform
 import re
 import subprocess
@@ -78,7 +79,7 @@ def _pg_dump_command(database_url: str, pg_version: int, exclude_tables: list[st
         "--rm",
         *docker_args,
         "-e",
-        f"PGPASSWORD={unquote(parsed.password or '')}",
+        "PGPASSWORD",
         "-e",
         f"PGSSLMODE={sslmode}",
         image,
@@ -95,7 +96,13 @@ def _pg_dump(database_url: str, pg_version: int, exclude_tables: list[str]) -> s
     image = "pgvector/pgvector:pg17" if pg_version == 17 else f"postgres:{pg_version}"
     command = _pg_dump_command(database_url, pg_version, exclude_tables)
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            env={**os.environ, "PGPASSWORD": unquote(urlsplit(database_url).password or "")},
+            text=True,
+            timeout=600,
+        )
     except subprocess.TimeoutExpired as exc:
         raise MigrationError(f"pg_dump timed out using {image}") from exc
     if result.returncode != 0:
