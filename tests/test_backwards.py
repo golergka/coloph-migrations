@@ -68,6 +68,33 @@ def test_old_code_new_schema_success_passes(tmp_path: Path, monkeypatch: pytest.
     assert backwards.check_backwards(config)["status"] == "passed"
 
 
+def test_fetch_refreshes_only_deployed_ref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    config = _repo(root)
+    _run(root, "tag", "unrelated", "deployed")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "clone", "--bare", str(root), str(remote)], check=True, capture_output=True, text=True)
+    _run(root, "remote", "add", "origin", str(remote))
+    _run(root, "tag", "--force", "deployed", "HEAD")
+    _run(root, "tag", "--force", "unrelated", "HEAD")
+    unrelated_sha = subprocess.run(
+        ["git", "rev-parse", "unrelated"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    config = replace(
+        config,
+        deployed_fetch_remote="origin",
+        backwards_test_command=(sys.executable, "-c", "pass"),
+    )
+    monkeypatch.setattr(backwards, "temporary_database", lambda _config: _database())
+    monkeypatch.setattr(backwards, "apply_to_database", lambda *_args, **_kwargs: None)
+
+    assert backwards.check_backwards(config)["status"] == "passed"
+    assert subprocess.run(
+        ["git", "rev-parse", "unrelated"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip() == unrelated_sha
+
+
 def test_missing_deployed_bootstrap_support_skips(tmp_path: Path) -> None:
     config = replace(_repo(tmp_path), backwards_test_command=(sys.executable, "-c", "pass"))
     config.backwards_bootstrap_file.write_text("# no marker\n", encoding="utf-8")

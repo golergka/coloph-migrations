@@ -25,10 +25,10 @@ def check_backwards(config: Config) -> dict:
     if not config.backwards_test_command:
         raise MigrationError("backwards_test_command must be configured")
     if config.deployed_fetch_remote:
-        fetched = _git(config, "fetch", "--tags", "--force", config.deployed_fetch_remote)
+        fetched = _git(config, "fetch", "--no-tags", config.deployed_fetch_remote, config.deployed_ref)
         if fetched.returncode != 0:
             raise MigrationError(fetched.stderr.strip() or "Unable to refresh deployed ref")
-    resolve = _git(config, "rev-parse", config.deployed_ref)
+    resolve = _git(config, "rev-parse", "FETCH_HEAD" if config.deployed_fetch_remote else config.deployed_ref)
     if resolve.returncode != 0:
         return {"status": "skipped", "reason": f"ref {config.deployed_ref} does not exist"}
     deployed_sha = resolve.stdout.strip()

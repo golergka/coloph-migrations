@@ -103,7 +103,7 @@ schema_snapshot = "migrations/schema.sql"
 database_url = "postgresql://postgres:postgres@localhost:5432/app"
 main_ref = "main"
 deployed_ref = "deployed"
-deployed_fetch_remote = "origin" # optional; refresh tags before backwards check
+deployed_fetch_remote = "origin" # optional; refresh deployed_ref before backwards check
 
 # Optional. The before file runs in the migration transaction. During normal
 # apply, the after file runs in a separate transaction after each migration is
