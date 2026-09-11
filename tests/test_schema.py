@@ -75,11 +75,21 @@ def test_pg_dump_keeps_password_out_of_command_arguments(monkeypatch) -> None:
     )
 
 
-def test_pg_dump_command_keeps_local_dump_without_ssl() -> None:
+def test_pg_dump_command_keeps_local_macos_dump_without_ssl(monkeypatch) -> None:
+    monkeypatch.setattr(schema.platform, "system", lambda: "Darwin")
     command = _pg_dump_command("postgresql://test:secret@localhost:5432/widgets", 17, [])
 
     assert "PGSSLMODE=disable" in command
     assert "--network=host" not in command
+    assert "--dbname=postgresql://test@host.docker.internal:5432/widgets" in command
+
+
+def test_pg_dump_command_uses_host_network_for_local_linux_dump(monkeypatch) -> None:
+    monkeypatch.setattr(schema.platform, "system", lambda: "Linux")
+    command = _pg_dump_command("postgresql://test:secret@localhost:5432/widgets", 17, [])
+
+    assert "--network=host" in command
+    assert "--dbname=postgresql://test@localhost:5432/widgets" in command
 
 
 def test_pg_dump_command_preserves_remote_sslmode_and_root_cert(tmp_path, monkeypatch) -> None:
