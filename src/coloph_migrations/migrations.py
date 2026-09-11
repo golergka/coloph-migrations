@@ -68,6 +68,8 @@ def discover_migrations(directory: Path, *, up_to: str | None = None) -> list[Mi
 
     all_versions = [int(MIGRATION_RE.fullmatch(path.name).group(1)) for path in paths]  # type: ignore[union-attr]
     for previous, current in zip(all_versions, all_versions[1:], strict=False):
+        if current == previous:
+            raise MigrationError(f"Duplicate migration version: {current:04d}")
         if current != previous + 1:
             raise MigrationError(
                 f"Migration sequence gap: {current:04d} follows {previous:04d}; expected {previous + 1:04d}"
@@ -462,10 +464,14 @@ def apply(
                         if before_sql:
                             cur.execute(before_sql)
                         if check_transaction_boundaries:
-                            transaction_id = cur.execute("SELECT pg_current_xact_id()").fetchone()[0]
+                            transaction_id = cur.execute(
+                                "SELECT pg_current_xact_id() AS transaction_id"
+                            ).fetchone()["transaction_id"]
                         cur.execute(migration.sql)
                         if check_transaction_boundaries:
-                            after_transaction_id = cur.execute("SELECT pg_current_xact_id()").fetchone()[0]
+                            after_transaction_id = cur.execute(
+                                "SELECT pg_current_xact_id() AS transaction_id"
+                            ).fetchone()["transaction_id"]
                             if after_transaction_id != transaction_id:
                                 raise MigrationError(
                                     f"Migration {migration.filename} changed its transaction "

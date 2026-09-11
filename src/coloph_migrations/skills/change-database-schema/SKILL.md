@@ -12,7 +12,7 @@ migration and snapshot paths below. Python projects usually run the CLI through
 `uv run`.
 
 Read the committed schema snapshot for current structure. Add the requested
-change as the next numbered SQL file. Use `coloph-migrate check-chain` to check
+change with `coloph-migrate new NAME`. Use `coloph-migrate check-chain` to check
 against configured main and deployed refs. Resolve reported conflicts through
 the project's Git workflow; do not renumber applied history.
 
@@ -20,6 +20,9 @@ Use `coloph-migrate --json plan` to inspect pending migrations and checksum
 drift against the intended database. It does not execute the SQL. These status
 commands can initialize the migration tracking table; they are not strictly
 read-only. For a reported failure, use the repair-database-schema skill.
+
+Run `coloph-migrate --json dry-run` before snapshot work. It executes the
+selected chain in a disposable database and detects transaction escapes.
 
 Regenerate with `coloph-migrate snapshot --fresh`, review the resulting SQL,
 and commit the migration and snapshot together. This replays migrations in a
@@ -45,8 +48,8 @@ not merely main, determines when destructive cleanup is ready.
 Apply through the project's deployment workflow. Use `coloph-migrate apply`
 directly only when the task includes applying to that database. Let package
 checks enforce migration rules; do not replace them with checksum scripts or
-disable locking. Do not add transaction control to migration SQL: the runner
-owns each transaction, and its current text guard does not catch every alias.
+disable locking. Do not add transaction control to migration SQL. The runner
+owns each transaction and checks transaction boundaries in disposable PostgreSQL.
 
 Optional snapshot notes start with `-- schema-doc:` immediately before the SQL
 statement they describe. Snapshot regeneration preserves them when the next

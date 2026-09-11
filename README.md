@@ -183,16 +183,13 @@ data transformations. Do not replace this check with direct tracking-table
 updates or treat ordinary pending migrations as checksum repairs.
 
 The runner owns each migration transaction. Do not include transaction control
-in migration SQL. The current text guard misses aliases such as `END;`, which
-can cause partial application. This defect is tracked in
-[#18](https://github.com/golergka/coloph-migrations/issues/18).
+in migration SQL. Before target changes, `apply` runs the selected chain in a
+disposable database and rejects migrations that change their transaction.
 
 The before hook runs inside the migration transaction. The after hook runs
 after that migration and its record commit, in a separate transaction. If the
-after hook fails, the migration remains applied. A later `apply` currently
-skips that unfinished hook; verify and complete it through the project's repair
-process rather than assuming a successful retry repaired it. Durable hook
-recovery is tracked in [#19](https://github.com/golergka/coloph-migrations/issues/19).
+after hook fails on the target, the migration remains applied and its hook is
+marked incomplete. A later `apply` retries incomplete hooks before new work.
 
 `check-backwards` can return `skipped`; that is not a passed compatibility test.
 It detects added SQL files between the deployed revision and committed HEAD,
@@ -290,10 +287,8 @@ Ordinary production `apply` remains fail-loud and keeps per-migration after
 hooks. It first performs the same migration chain as `dry-run`, so a failed
 disposable run leaves the target database unchanged.
 
-Obsolete reconstruction settings and compatibility paths are scheduled for
-complete removal in [#22](https://github.com/golergka/coloph-migrations/issues/22).
-Do not rely on the accepted feature-skip or concurrent-DDL-retry settings:
-the active batch path does not use them. Failed migrations must stop the run.
+Removed reconstruction settings and compatibility paths now fail as unknown
+configuration keys. Failed migrations always stop the run.
 
 ## Coloph dependency workflow
 

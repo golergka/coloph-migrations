@@ -17,6 +17,21 @@ def test_discover_migrations_requires_sequential_numbers(tmp_path: Path) -> None
         discover_migrations(tmp_path)
 
 
+def test_discover_migrations_sorts_unpadded_versions_numerically(tmp_path: Path) -> None:
+    for version in range(1, 11):
+        _write(tmp_path / f"{version}_migration.sql")
+
+    assert [int(item.version) for item in discover_migrations(tmp_path)] == list(range(1, 11))
+
+
+def test_discover_migrations_rejects_duplicate_numeric_versions(tmp_path: Path) -> None:
+    _write(tmp_path / "1_first.sql")
+    _write(tmp_path / "01_duplicate.sql")
+
+    with pytest.raises(MigrationError, match="Duplicate migration version: 0001"):
+        discover_migrations(tmp_path)
+
+
 def test_discover_migrations_allows_transaction_keywords_inside_function_bodies(tmp_path: Path) -> None:
     _write(
         tmp_path / "0001_first.sql",
