@@ -10,6 +10,7 @@ from coloph_migrations.schema import (
     _pg_dump_command,
     normalize_schema,
     restore_schema_doc_comments,
+    strip_schema_doc_comments,
     strip_top_level_comments,
 )
 
@@ -39,6 +40,12 @@ def test_restore_schema_doc_comments() -> None:
     assert count == 1
     assert restored.startswith("-- schema-doc: code: widgets.py\n")
     assert strip_top_level_comments(restored) == generated
+
+
+def test_strip_schema_doc_comments_ignores_only_supported_comments() -> None:
+    schema = "-- schema-doc: owner: team\n-- ordinary comment\nCREATE TABLE widgets(id integer);\n"
+
+    assert strip_schema_doc_comments(schema) == "-- ordinary comment\nCREATE TABLE widgets(id integer);\n"
 
 
 def test_pg_dump_keeps_password_out_of_command_arguments(monkeypatch) -> None:

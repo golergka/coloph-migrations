@@ -27,6 +27,10 @@ disposable database; it does not apply them to the target. Docker is required
 for schema dumps, even with a remote test cluster. Use the existing project
 test-cluster configuration rather than provisioning infrastructure.
 
+Run `coloph-migrate --json verify` after updating the migration and snapshot.
+It is the normal pre-deployment schema check and requires the complete history,
+committed snapshot, and intended current target database to agree.
+
 Before deployment, run the project's relevant application tests and configured
 `coloph-migrate --json check-backwards`. Inspect its status: `skipped` does not
 mean compatibility passed. Its tests exercise deployed code against the final

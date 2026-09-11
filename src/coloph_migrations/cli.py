@@ -16,7 +16,7 @@ from .config import DEFAULT_CONFIG_NAME, load_config, override_config
 from .git_checks import check_chain
 from .migrations import MIGRATION_RE, MigrationError, apply, check_current, plan, statuses
 from .repair import repair_checksums
-from .schema import snapshot, validate
+from .schema import snapshot, validate, verify
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -51,6 +51,8 @@ def _parser() -> argparse.ArgumentParser:
     validate_parser = sub.add_parser("validate", help="Compare target schema with a reconstructed database")
     validate_parser.add_argument("--match-applied", action="store_true")
     validate_parser.add_argument("--up-to")
+
+    sub.add_parser("verify", help="Verify migrations, snapshot, and target schema")
 
     repair_parser = sub.add_parser("repair-checksums", help="Repair checksums only after schema equivalence")
     repair_parser.add_argument("--dry-run", action="store_true")
@@ -186,6 +188,11 @@ def run(argv: list[str] | None = None) -> int:
         )
     elif command == "validate":
         result = validate(config, match_applied=args.match_applied, up_to=args.up_to)
+        if not result["identical"]:
+            _render(result, json_output=args.json_output)
+            return 1
+    elif command == "verify":
+        result = verify(config)
         if not result["identical"]:
             _render(result, json_output=args.json_output)
             return 1

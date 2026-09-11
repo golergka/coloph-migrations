@@ -9,7 +9,7 @@ import pytest
 from coloph_migrations.config import Config
 from coloph_migrations.migrations import MigrationError, apply, check_current, discover_migrations, plan, statuses
 from coloph_migrations.repair import repair_checksums
-from coloph_migrations.schema import validate
+from coloph_migrations.schema import canonical_schema, validate, verify
 
 
 def _config(tmp_path: Path, database_url: str, **changes) -> Config:
@@ -249,6 +249,85 @@ def test_validate_detects_schema_drift(tmp_path: Path, database_url: str) -> Non
     result = validate(config)
     assert result["identical"] is False
     assert "drift" in result["diff"]
+
+
+def test_verify_accepts_matching_schemas_and_schema_docs(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    schema = canonical_schema(config, database_url)
+    config.schema_snapshot.write_text("-- schema-doc: owner: platform\n" + schema, encoding="utf-8")
+    with psycopg.connect(database_url) as conn:
+        history_before = conn.execute("SELECT version, filename, checksum FROM schema_migrations").fetchall()
+
+    result = verify(config)
+
+    assert result["identical"] is True
+    assert result["snapshot_identical"] is True
+    assert result["target_identical"] is True
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT version, filename, checksum FROM schema_migrations").fetchall() == history_before
+
+
+def test_verify_reports_snapshot_and_target_differences(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    config.schema_snapshot.write_text("CREATE TABLE stale(id integer);\n", encoding="utf-8")
+    with psycopg.connect(database_url) as conn:
+        conn.execute("ALTER TABLE widgets ADD COLUMN drift text")
+        conn.commit()
+
+    result = verify(config)
+
+    assert result["identical"] is False
+    assert result["snapshot_identical"] is False
+    assert result["target_identical"] is False
+    assert "--- snapshot" in result["snapshot_diff"]
+    assert "stale" in result["snapshot_diff"]
+    assert "--- target" in result["target_diff"]
+    assert "drift" in result["target_diff"]
+
+
+def test_verify_missing_snapshot_fails_without_creating_it(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+
+    result = verify(config)
+
+    assert result["identical"] is False
+    assert result["snapshot_exists"] is False
+    assert "+++ rebuilt" in result["snapshot_diff"]
+    assert not config.schema_snapshot.exists()
+
+
+def test_verify_rejects_pending_history_before_reconstruction(tmp_path: Path, database_url: str, monkeypatch) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    _write(config, "0002_pending.sql", "CREATE TABLE pending(id integer);\n")
+    monkeypatch.setattr(
+        "coloph_migrations.schema.temporary_database",
+        lambda _config: pytest.fail("reconstruction must not start"),
+    )
+
+    with pytest.raises(MigrationError, match="pending"):
+        verify(config)
+
+
+def test_verify_does_not_create_missing_history_table(tmp_path: Path, database_url: str, monkeypatch) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    monkeypatch.setattr(
+        "coloph_migrations.schema.temporary_database",
+        lambda _config: pytest.fail("reconstruction must not start"),
+    )
+
+    with pytest.raises(MigrationError, match="tracking table .* does not exist"):
+        verify(config)
+
+    assert _regclass(database_url, config.migration_table) is None
 
 
 def test_checksum_repair_requires_schema_equivalence(tmp_path: Path, database_url: str) -> None:

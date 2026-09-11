@@ -3,6 +3,7 @@ import subprocess
 
 import pytest
 
+from coloph_migrations import cli
 from coloph_migrations.cli import _database_url_from_environment, run
 from coloph_migrations.migrations import MigrationError
 
@@ -113,3 +114,23 @@ def test_init_warns_when_env_is_not_ignored(tmp_path: Path, monkeypatch, capsys)
     run(["init"])
 
     assert capsys.readouterr().err == "WARNING: .env is not ignored by Git. Add it to .gitignore.\n"
+
+
+def test_verify_json_reports_both_comparisons(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "verify",
+        lambda _config: {
+            "identical": False,
+            "snapshot_identical": False,
+            "target_identical": False,
+            "snapshot_diff": "snapshot diff",
+            "target_diff": "target diff",
+        },
+    )
+
+    assert run(["--json", "verify"]) == 1
+    output = capsys.readouterr().out
+    assert '"snapshot_diff": "snapshot diff"' in output
+    assert '"target_diff": "target diff"' in output

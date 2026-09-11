@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsp
 import psycopg
 
 from .config import Config
-from .migrations import MigrationError, apply_to_database
+from .migrations import MigrationError, apply_to_database, check_current, discover_migrations
 from .test_database import temporary_database
 
 
@@ -149,6 +149,11 @@ def strip_top_level_comments(schema: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", result).strip() + "\n"
 
 
+def strip_schema_doc_comments(schema: str) -> str:
+    stripped = "\n".join(line for line in schema.splitlines() if not line.startswith(SCHEMA_DOC_PREFIX)).strip()
+    return stripped + "\n" if stripped else ""
+
+
 def restore_schema_doc_comments(generated: str, previous: str) -> tuple[str, int]:
     lines = previous.splitlines()
     blocks: dict[str, list[str]] = {}
@@ -227,6 +232,44 @@ def validate(config: Config, *, match_applied: bool = False, up_to: str | None =
     result = {"identical": identical, "target_postgres_version": target_version}
     if not identical:
         result["diff"] = "".join(
+            difflib.unified_diff(target.splitlines(True), rebuilt.splitlines(True), "target", "rebuilt", n=3)
+        )
+    return result
+
+
+def verify(config: Config) -> dict:
+    if config.database_url is None:
+        raise MigrationError("database_url is required")
+
+    discover_migrations(config.migrations_dir)
+    with psycopg.connect(config.database_url) as conn:
+        check_current(conn, config, initialize=False)
+
+    target_version = detect_server_version(config.database_url)
+    with temporary_database(config) as test_url:
+        apply_to_database(config, test_url)
+        rebuilt = canonical_schema(config, test_url)
+        target = canonical_schema(config, config.database_url)
+
+    snapshot_exists = config.schema_snapshot.exists()
+    snapshot = strip_schema_doc_comments(
+        config.schema_snapshot.read_text(encoding="utf-8") if snapshot_exists else ""
+    )
+    snapshot_identical = snapshot_exists and snapshot == rebuilt
+    target_identical = target == rebuilt
+    result = {
+        "identical": snapshot_identical and target_identical,
+        "snapshot_identical": snapshot_identical,
+        "target_identical": target_identical,
+        "snapshot_exists": snapshot_exists,
+        "target_postgres_version": target_version,
+    }
+    if not snapshot_identical:
+        result["snapshot_diff"] = "".join(
+            difflib.unified_diff(snapshot.splitlines(True), rebuilt.splitlines(True), "snapshot", "rebuilt", n=3)
+        )
+    if not target_identical:
+        result["target_diff"] = "".join(
             difflib.unified_diff(target.splitlines(True), rebuilt.splitlines(True), "target", "rebuilt", n=3)
         )
     return result

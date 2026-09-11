@@ -123,8 +123,13 @@ def _applied(conn: psycopg.Connection, config: Config) -> list[dict]:
         )
 
 
-def _migration_state(conn: psycopg.Connection, config: Config) -> tuple[list[MigrationStatus], list[str]]:
-    _ensure_table(conn, config)
+def _migration_state(
+    conn: psycopg.Connection, config: Config, *, initialize: bool = True
+) -> tuple[list[MigrationStatus], list[str]]:
+    if initialize:
+        _ensure_table(conn, config)
+    elif conn.execute("SELECT to_regclass(%s)", (config.migration_table,)).fetchone()[0] is None:
+        raise MigrationError(f"Migration tracking table {config.migration_table} does not exist")
     migrations = discover_migrations(config.migrations_dir)
     disk = {item.version: item for item in migrations}
     rows = _applied(conn, config)
@@ -166,8 +171,10 @@ def statuses(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
     return _migration_state(conn, config)[0]
 
 
-def check_current(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
-    result, problems = _migration_state(conn, config)
+def check_current(
+    conn: psycopg.Connection, config: Config, *, initialize: bool = True
+) -> list[MigrationStatus]:
+    result, problems = _migration_state(conn, config, initialize=initialize)
     problems.extend(f"version {item.version} ({item.filename}): pending" for item in result if item.status == "pending")
     if problems:
         raise MigrationError(f"Migration state is not current: {', '.join(problems)}")

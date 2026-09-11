@@ -27,10 +27,10 @@ does not reject every bad status: inspect `list` for `orphan` and `renamed` too.
   currently skip its unfinished hook. A successful retry alone is insufficient;
   explicitly verify and complete the hook through the project's repair process.
 
-Use `coloph-migrate --json validate --match-applied` to compare the target
-schema with a reconstruction through the highest recorded version. This
-assumes a contiguous applied history. Plain `validate` compares against the
-complete local chain. Neither checks the committed snapshot or data contents.
+Use `coloph-migrate --json validate --match-applied` only as a repair diagnostic
+to compare the target schema with a reconstruction through the highest recorded
+version. Normal pre-deployment verification uses `coloph-migrate --json verify`,
+which requires the full history, committed snapshot, and target to agree.
 
 For a specific failing version, write diagnostic dumps to separate files:
 

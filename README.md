@@ -81,8 +81,11 @@ uv run coloph-migrate list
 # Require that every migration is applied and its checksum still matches
 uv run coloph-migrate check
 
-# Rebuild a disposable database and compare its schema to the target database
-uv run coloph-migrate validate
+# Verify migration history, the committed snapshot, and the current target
+uv run coloph-migrate verify
+
+# Repair diagnostic: compare the target with its recorded migration prefix
+uv run coloph-migrate validate --match-applied
 
 # Regenerate schema.sql from a disposable reconstruction
 uv run coloph-migrate snapshot --fresh
@@ -111,7 +114,7 @@ only the disposable-database policies configured for reconstruction.
 | Edited history | An applied migration is changed, renamed, or removed | `plan` and `check` reject the invalid history. |
 | Bad ordering | A branch adds `007_*.sql` while `main` already has `007_*.sql` | `check-chain` detects collisions across refs. |
 | Failed SQL | A migration's second statement fails | The runner rolls back its transaction; earlier migrations remain committed. See transaction-control limitations below. |
-| Schema drift | The target database differs from executable migrations | `validate` reconstructs and compares database schemas. It does not read the committed snapshot. |
+| Schema drift | A snapshot or target differs from executable migrations | `verify` reconstructs and compares all three schemas. |
 | Unsafe checksum repair | Someone wants to accept modified applied SQL | `repair-checksums` requires schema equivalence first. |
 | Incompatible deployed code | New schema breaks a tested query in deployed code | Configured `check-backwards` tests exercise deployed code against the final rebuilt schema. |
 
@@ -119,17 +122,16 @@ only the disposable-database policies configured for reconstruction.
 
 `plan` reports pending files and rejects checksum mismatches; it does not run
 migration SQL. `list` reports `applied`, `pending`, `orphan`, `renamed`, and
-`checksum_mismatch`. Inspect those statuses: `check` currently rejects pending
-and checksum mismatches but does not reject orphaned or renamed records.
-Status commands can create the migration tracking table.
-Stricter history checks are tracked in
-[#23](https://github.com/golergka/coloph-migrations/issues/23).
+`checksum_mismatch`. `check` rejects every non-applied status. Status commands
+can create the migration tracking table; `verify` requires the table to exist
+and does not create it.
 
-`validate --match-applied` reconstructs through the highest recorded migration
-version. It assumes a contiguous applied history. Plain `validate` rebuilds the
-full local chain. Neither compares data contents or the committed `schema.sql`.
-A non-mutating snapshot check is tracked in
-[#21](https://github.com/golergka/coloph-migrations/issues/21).
+Run `verify` before deployment. It fails unless the complete migration history
+is current and its rebuilt canonical schema matches both `schema_snapshot` and
+the target database. It reports each mismatch as a unified diff, ignores only
+`-- schema-doc:` snapshot comments, and changes neither the snapshot nor target.
+Use `validate --match-applied` only to diagnose a target at its recorded prefix.
+Neither command compares data contents.
 
 `repair-checksums --dry-run` previews updates after comparing the target schema
 with the full reconstructed chain. Schema equality does not prove equivalent
@@ -225,6 +227,7 @@ coloph-migrate list
 coloph-migrate plan
 coloph-migrate check
 coloph-migrate snapshot
+coloph-migrate verify
 coloph-migrate validate
 coloph-migrate repair-checksums
 coloph-migrate check-chain
