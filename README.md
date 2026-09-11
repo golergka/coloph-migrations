@@ -15,12 +15,7 @@ Add it to the repository's development dependencies (and commit the updated
 uv add --dev coloph-migrations
 ```
 
-The lockfile records the exact package version. To run a fixed version without
-adding a dependency, replace `VERSION` in this command:
-
-```sh
-uvx --from 'coloph-migrations==VERSION' coloph-migrate --help
-```
+The lockfile records the exact package version.
 
 Initialize the migration files at the repository root:
 
@@ -262,22 +257,22 @@ statement line still matches. They do not become live database metadata.
 ## Command reference
 
 ```text
-coloph-migrate init
-coloph-migrate new NAME [--template PATH]
-coloph-migrate apply
-coloph-migrate dry-run
-coloph-migrate list
-coloph-migrate plan
-coloph-migrate check
-coloph-migrate snapshot
-coloph-migrate verify
-coloph-migrate validate
-coloph-migrate repair-checksums
-coloph-migrate check-chain
-coloph-migrate check-backwards
+uv run coloph-migrate init
+uv run coloph-migrate new NAME [--template PATH]
+uv run coloph-migrate apply
+uv run coloph-migrate dry-run
+uv run coloph-migrate list
+uv run coloph-migrate plan
+uv run coloph-migrate check
+uv run coloph-migrate snapshot
+uv run coloph-migrate verify
+uv run coloph-migrate validate
+uv run coloph-migrate repair-checksums
+uv run coloph-migrate check-chain
+uv run coloph-migrate check-backwards
 ```
 
-Put global `--json` before the command, for example `coloph-migrate --json list`.
+Put global `--json` before the command, for example `uv run coloph-migrate --json list`.
 
 `apply --reconstruction` applies the selected migration prefix, runs the configured after
 hook at explicit checkpoint versions, and then runs it once against the rebuilt

@@ -31,7 +31,7 @@ def test_init_creates_config_and_migrations_directory(tmp_path: Path, monkeypatc
         "\nNext:\n"
         "1. Set DATABASE_URL in .env.\n"
         "2. Add the initial schema to migrations/0001_init.sql.\n"
-        "3. Run coloph-migrate plan.\n"
+        "3. Run: uv run coloph-migrate plan.\n"
     )
 
 
