@@ -1,7 +1,6 @@
 migrations_dir = "migrations"
 schema_snapshot = "migrations/schema.sql"
 migration_table = "schema_migrations"
-legacy_migration_table = "old_schema_migrations"
 before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
 main_ref = "main"
@@ -9,9 +8,7 @@ deployed_ref = "deployed"
 deployed_fetch_remote = "origin"
 postgres_image = "pgvector/pgvector:pg17"
 test_cluster_url_env = "TEST_POSTGRES_CLUSTER_DSN"
-fresh_skip_feature_not_supported = false
 fresh_statement_timeout_seconds = 90
-fresh_vacuum_after_each_migration = false
 backwards_setup_command = ["uv", "sync"]
 backwards_test_command = ["uv", "run", "pytest", "tests/smoke"]
 backwards_database_url_env = "TEST_DATABASE_URL"

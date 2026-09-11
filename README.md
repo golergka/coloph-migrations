@@ -120,9 +120,7 @@ before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
 
 # Disposable-reconstruction options.
-fresh_skip_feature_not_supported = true
 fresh_statement_timeout_seconds = 90
-fresh_vacuum_after_each_migration = true
 reconstruction_after_hook_versions = ["0186"]
 
 # Optional. Fresh databases use local Docker when this environment variable is

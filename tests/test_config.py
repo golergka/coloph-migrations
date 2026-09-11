@@ -30,6 +30,25 @@ def test_unknown_configuration_key_fails(tmp_path: Path) -> None:
         load_config(path)
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "legacy_migration_table",
+        "fresh_skip_feature_not_supported",
+        "fresh_vacuum_after_each_migration",
+        "concurrent_ddl_retry_versions",
+        "concurrent_ddl_retry_message",
+        "concurrent_ddl_max_attempts",
+        "concurrent_ddl_retry_sleep_seconds",
+    ],
+)
+def test_removed_configuration_keys_fail_as_unknown(tmp_path: Path, name: str) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(f"{name} = false\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=rf"Unknown configuration keys: {name}"):
+        load_config(path)
+
+
 @pytest.mark.parametrize("value", [0, -1, True, 1.5])
 def test_retry_counts_must_be_positive_integers(tmp_path: Path, value: object) -> None:
     path = tmp_path / "config.toml"

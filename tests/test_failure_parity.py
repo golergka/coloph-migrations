@@ -56,6 +56,13 @@ def test_migration_error_rolls_back_body_and_history(tmp_path: Path, database_ur
         assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 0
 
 
+def test_apply_result_has_no_skipped_migration_contract(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+
+    assert apply(config) == {"applied": ["0001_widgets.sql"], "applied_count": 1}
+
+
 def test_checksum_drift_fails_loud(tmp_path: Path, database_url: str) -> None:
     config = _config(tmp_path, database_url)
     migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")

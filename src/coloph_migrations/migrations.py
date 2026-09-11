@@ -84,19 +84,6 @@ def _identifier(name: str) -> sql.Identifier:
 
 def _ensure_table(conn: psycopg.Connection, config: Config) -> None:
     with conn.cursor() as cur:
-        if config.legacy_migration_table:
-            cur.execute(
-                "SELECT to_regclass(%s), to_regclass(%s)",
-                (config.legacy_migration_table, config.migration_table),
-            )
-            legacy, current = cur.fetchone()
-            if legacy is not None and current is None:
-                cur.execute(
-                    sql.SQL("ALTER TABLE {} RENAME TO {}").format(
-                        _identifier(config.legacy_migration_table),
-                        _identifier(config.migration_table),
-                    )
-                )
         cur.execute(
             sql.SQL(
                 """
@@ -164,11 +151,10 @@ def check_current(conn: psycopg.Connection, config: Config) -> list[MigrationSta
 
 
 def plan(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
-    """Return pending work while preserving the legacy dry-run contract.
+    """Return pending work while holding the migration advisory lock.
 
     Pending migrations are reported, not rejected. Applied checksum drift is
-    fatal. The session advisory lock keeps the answer consistent with a
-    concurrent apply, matching the old Coloph dry-run behavior.
+    fatal. The lock keeps the result consistent with a concurrent apply.
     """
     _ensure_table(conn, config)
     with conn.cursor() as cur:
@@ -250,7 +236,7 @@ def _apply_reconstruction_batch(
     migrations: list[Migration],
     before_sql: str | None,
     after_sql: str | None,
-) -> tuple[list[str], list[str]]:
+) -> list[str]:
     """Apply an isolated rebuild without paying a network round trip per command.
 
     Every migration remains its own PostgreSQL transaction. ClientCursor uses
@@ -258,7 +244,6 @@ def _apply_reconstruction_batch(
     remote test-cluster link once while each explicit COMMIT is still honored.
     """
     applied_names: list[str] = []
-    skipped_names: list[str] = []
     statements: list[str] = []
 
     for index, migration in enumerate(migrations):
@@ -302,15 +287,7 @@ def _apply_reconstruction_batch(
         with psycopg.ClientCursor(conn) as cur:
             cur.execute("\n".join(statements))
 
-    if config.fresh_vacuum_after_each_migration and applied_names:
-        conn.autocommit = True
-        try:
-            with conn.cursor() as cur:
-                cur.execute("VACUUM")
-        finally:
-            conn.autocommit = False
-
-    return applied_names, skipped_names
+    return applied_names
 
 
 # MIGRATIONS MUST EITHER APPLY COMPLETELY OR CRASH THE RUN.
@@ -330,13 +307,7 @@ def apply(
     apply_max_attempts = _positive_attempt_count("apply_max_attempts", config.apply_max_attempts)
     if after_sql:
         _positive_attempt_count("post_max_attempts", config.post_max_attempts)
-    concurrent_ddl_max_attempts = (
-        _positive_attempt_count("concurrent_ddl_max_attempts", config.concurrent_ddl_max_attempts)
-        if reconstruction
-        else 0
-    )
     applied_names: list[str] = []
-    skipped_names: list[str] = []
 
     with psycopg.connect(config.database_url, row_factory=dict_row, prepare_threshold=None) as conn:
         _ensure_table(conn, config)
@@ -358,15 +329,13 @@ def apply(
                             )
                         continue
                     pending.append(migration)
-                applied_names, skipped_names = _apply_reconstruction_batch(conn, config, pending, before_sql, after_sql)
+                applied_names = _apply_reconstruction_batch(conn, config, pending, before_sql, after_sql)
                 if not skip_advisory_lock:
                     cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
                     conn.commit()
                 return {
                     "applied": applied_names,
                     "applied_count": len(applied_names),
-                    "skipped": skipped_names,
-                    "skipped_count": len(skipped_names),
                 }
 
             for migration in migrations:
@@ -379,12 +348,7 @@ def apply(
                         )
                     continue
 
-                max_attempts = (
-                    concurrent_ddl_max_attempts
-                    if reconstruction and migration.version in config.concurrent_ddl_retry_versions
-                    else apply_max_attempts
-                )
-                for attempt in range(max_attempts):
+                for attempt in range(apply_max_attempts):
                     try:
                         cur.execute(
                             "SELECT set_config('lock_timeout', %s, true)", (f"{config.apply_lock_timeout_seconds}s",)
@@ -394,11 +358,6 @@ def apply(
                         )
                         if before_sql:
                             cur.execute(before_sql)
-                        if reconstruction:
-                            cur.execute(
-                                "SELECT set_config('statement_timeout', %s, true)",
-                                (f"{config.fresh_statement_timeout_seconds}s",),
-                            )
                         cur.execute(migration.sql)
                         cur.execute(
                             sql.SQL("INSERT INTO {} (version, filename, checksum) VALUES (%s, %s, %s)").format(
@@ -410,53 +369,13 @@ def apply(
                         break
                     except psycopg.errors.LockNotAvailable:
                         conn.rollback()
-                        if attempt == max_attempts - 1:
+                        if attempt == apply_max_attempts - 1:
                             raise
                         time.sleep(config.retry_sleep_seconds)
-                    except psycopg.errors.InternalError_ as exc:
-                        message = getattr(exc.diag, "message_primary", "") or str(exc)
-                        if (
-                            not reconstruction
-                            or migration.version not in config.concurrent_ddl_retry_versions
-                            or config.concurrent_ddl_retry_message not in message
-                        ):
-                            raise
-                        conn.rollback()
-                        if attempt == max_attempts - 1:
-                            raise
-                        time.sleep(config.concurrent_ddl_retry_sleep_seconds * (attempt + 1))
-                    except psycopg.errors.FeatureNotSupported:
-                        if not (reconstruction and config.fresh_skip_feature_not_supported):
-                            raise
-                        conn.rollback()
-                        cur.execute(
-                            sql.SQL("INSERT INTO {} (version, filename, checksum) VALUES (%s, %s, %s)").format(
-                                _identifier(config.migration_table)
-                            ),
-                            (migration.version, migration.filename, migration.checksum),
-                        )
-                        conn.commit()
-                        skipped_names.append(migration.filename)
-                        break
 
-                if migration.filename in skipped_names:
-                    continue
-
-                if after_sql and not reconstruction:
-                    _run_after_hook(conn, cur, config, after_sql)
-                elif after_sql and migration.version in config.reconstruction_after_hook_versions:
+                if after_sql:
                     _run_after_hook(conn, cur, config, after_sql)
                 applied_names.append(migration.filename)
-
-                if reconstruction and config.fresh_vacuum_after_each_migration:
-                    conn.autocommit = True
-                    try:
-                        cur.execute("VACUUM")
-                    finally:
-                        conn.autocommit = False
-
-            if after_sql and reconstruction and (applied_names or skipped_names):
-                _run_after_hook(conn, cur, config, after_sql)
 
             if not skip_advisory_lock:
                 cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
@@ -464,8 +383,6 @@ def apply(
     return {
         "applied": applied_names,
         "applied_count": len(applied_names),
-        "skipped": skipped_names,
-        "skipped_count": len(skipped_names),
     }
 
 
