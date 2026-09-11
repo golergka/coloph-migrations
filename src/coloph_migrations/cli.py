@@ -156,7 +156,7 @@ def run(argv: list[str] | None = None) -> int:
                 print(f"2. Add the initial schema to {os.path.relpath(migration_path)}.")
             else:
                 print(f"2. Review the migration files in {migrations_display}/.")
-            print("3. Run coloph-migrate plan.")
+            print("3. Run: uv run coloph-migrate plan.")
         return 0
     config = load_config(args.config)
     config = override_config(

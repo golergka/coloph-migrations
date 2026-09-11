@@ -5,12 +5,12 @@ description: Diagnose failed database migrations, changed migration checksums, o
 
 # Repair database schema
 
-Use the project's pinned `coloph-migrate` CLI. Read `coloph-migrations.toml`
+Use the project's pinned CLI through `uv run coloph-migrate`. Read `coloph-migrations.toml`
 and project operating rules. Identify the intended database and deployed Git
 revision before interpreting local files. A stale branch can explain a
 mismatch; it is not the only possible cause. Do not print credentials.
 
-Run `coloph-migrate --json list` and `coloph-migrate --json plan` from the
+Run `uv run coloph-migrate --json list` and `uv run coloph-migrate --json plan` from the
 configuration directory. Global options go before the command. Status commands
 can initialize the tracking table. `plan` and `check` reject invalid applied
 history, including missing and renamed migration files.
@@ -27,16 +27,16 @@ history, including missing and renamed migration files.
   retry its recorded incomplete hook. Keep the hook SQL safe to retry, then run
   `apply` again and verify the final schema.
 
-Use `coloph-migrate --json validate --match-applied` only as a repair diagnostic
+Use `uv run coloph-migrate --json validate --match-applied` only as a repair diagnostic
 to compare the target schema with a reconstruction through the highest recorded
-version. Normal pre-deployment verification uses `coloph-migrate --json verify`,
+version. Normal pre-deployment verification uses `uv run coloph-migrate --json verify`,
 which requires the full history, committed snapshot, and target to agree.
 
 For a specific failing version, write diagnostic dumps to separate files:
 
 ```sh
-coloph-migrate --schema-snapshot /tmp/schema-target.sql snapshot
-coloph-migrate --schema-snapshot /tmp/schema-before.sql snapshot --fresh --up-to NNNN
+uv run coloph-migrate --schema-snapshot /tmp/schema-target.sql snapshot
+uv run coloph-migrate --schema-snapshot /tmp/schema-before.sql snapshot --fresh --up-to NNNN
 diff -u /tmp/schema-before.sql /tmp/schema-target.sql
 ```
 
@@ -46,7 +46,7 @@ Fresh reconstruction and schema comparison require Docker for dumps and the
 project's configured disposable database environment.
 
 For an intentional, justified edit of applied history, preview with
-`coloph-migrate --json repair-checksums --dry-run`. It compares the target with
+`uv run coloph-migrate --json repair-checksums --dry-run`. It compares the target with
 the full reconstructed chain before permitting checksum updates. Schema
 equality does not prove that changed data transformations are equivalent.
 Resolve that question and coordinate with the project's deployment owner
