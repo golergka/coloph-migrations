@@ -104,10 +104,16 @@ def _ensure_table(conn: psycopg.Connection, config: Config) -> None:
                     version TEXT PRIMARY KEY,
                     filename TEXT NOT NULL,
                     checksum TEXT NOT NULL,
+                    post_hook_completed BOOLEAN NOT NULL DEFAULT TRUE,
                     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
             ).format(_identifier(config.migration_table))
+        )
+        cur.execute(
+            sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS post_hook_completed BOOLEAN NOT NULL DEFAULT TRUE").format(
+                _identifier(config.migration_table)
+            )
         )
     conn.commit()
 
@@ -116,7 +122,7 @@ def _applied(conn: psycopg.Connection, config: Config) -> list[dict]:
     with conn.cursor(row_factory=dict_row) as cur:
         return list(
             cur.execute(
-                sql.SQL("SELECT version, filename, checksum FROM {} ORDER BY version").format(
+                sql.SQL("SELECT version, filename, checksum, post_hook_completed FROM {} ORDER BY version").format(
                     _identifier(config.migration_table)
                 )
             ).fetchall()
@@ -156,6 +162,9 @@ def _migration_state(
             state = "checksum_mismatch"
             filename = local.filename
             history_errors.append(f"version {version} ({local.filename}): checksum differs")
+        elif not row["post_hook_completed"]:
+            state = "post_hook_incomplete"
+            filename = local.filename
         else:
             state = "applied"
             filename = local.filename
@@ -176,6 +185,11 @@ def check_current(
 ) -> list[MigrationStatus]:
     result, problems = _migration_state(conn, config, initialize=initialize)
     problems.extend(f"version {item.version} ({item.filename}): pending" for item in result if item.status == "pending")
+    problems.extend(
+        f"version {item.version} ({item.filename}): post-migration hook is incomplete"
+        for item in result
+        if item.status == "post_hook_incomplete"
+    )
     if problems:
         raise MigrationError(f"Migration state is not current: {', '.join(problems)}")
     return result
@@ -208,7 +222,12 @@ def plan(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
 
 
 def _read_optional(path: Path | None) -> str | None:
-    return path.read_text(encoding="utf-8") if path is not None else None
+    if path is None:
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise MigrationError(f"Migration hook SQL file is missing: {path}") from exc
 
 
 def _positive_attempt_count(name: str, value: object) -> int:
@@ -217,7 +236,13 @@ def _positive_attempt_count(name: str, value: object) -> int:
     return value
 
 
-def _run_after_hook(conn: psycopg.Connection, cur: psycopg.Cursor, config: Config, after_sql: str) -> None:
+def _run_after_hook(
+    conn: psycopg.Connection,
+    cur: psycopg.Cursor,
+    config: Config,
+    after_sql: str,
+    migration_version: str | None,
+) -> None:
     for attempt in range(config.post_max_attempts):
         try:
             cur.execute(
@@ -229,6 +254,19 @@ def _run_after_hook(conn: psycopg.Connection, cur: psycopg.Cursor, config: Confi
                 (f"{config.post_lock_timeout_seconds}s",),
             )
             cur.execute(after_sql)
+            if migration_version is None:
+                cur.execute(
+                    sql.SQL("UPDATE {} SET post_hook_completed = TRUE WHERE NOT post_hook_completed").format(
+                        _identifier(config.migration_table)
+                    )
+                )
+            else:
+                cur.execute(
+                    sql.SQL("UPDATE {} SET post_hook_completed = TRUE WHERE version = %s").format(
+                        _identifier(config.migration_table)
+                    ),
+                    (migration_version,),
+                )
             conn.commit()
             break
         except psycopg.errors.LockNotAvailable:
@@ -255,6 +293,10 @@ def _append_reconstruction_hook(statements: list[str], conn: psycopg.Connection,
                 f"{_sql_literal(conn, f'{config.post_lock_timeout_seconds}s')}, true);"
             ),
             after_sql,
+            (
+                f"UPDATE {_identifier(config.migration_table).as_string(conn)} "
+                "SET post_hook_completed = TRUE WHERE NOT post_hook_completed;"
+            ),
             "COMMIT;",
         ]
     )
@@ -298,9 +340,9 @@ def _apply_reconstruction_batch(
                 migration.sql,
                 (
                     f"INSERT INTO {_identifier(config.migration_table).as_string(conn)} "
-                    "(version, filename, checksum) VALUES "
+                    "(version, filename, checksum, post_hook_completed) VALUES "
                     f"({_sql_literal(conn, migration.version)}, {_sql_literal(conn, migration.filename)}, "
-                    f"{_sql_literal(conn, migration.checksum)});"
+                    f"{_sql_literal(conn, migration.checksum)}, {'FALSE' if after_sql else 'TRUE'});"
                 ),
                 "COMMIT;",
             ]
@@ -327,6 +369,16 @@ def _apply_reconstruction_batch(
             conn.autocommit = False
 
     return applied_names, skipped_names
+
+
+def _incomplete_after_hooks(conn: psycopg.Connection, config: Config) -> list[str]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            sql.SQL("SELECT version FROM {} WHERE NOT post_hook_completed ORDER BY version").format(
+                _identifier(config.migration_table)
+            )
+        ).fetchall()
+    return [str(row["version"]) for row in rows]
 
 
 # MIGRATIONS MUST EITHER APPLY COMPLETELY OR CRASH THE RUN.
@@ -361,6 +413,15 @@ def apply(
                 cur.execute("SELECT pg_advisory_lock(hashtext(%s))", (config.advisory_lock_name,))
             rows = _applied(conn, config)
             existing = {str(row["version"]): row for row in rows}
+
+            incomplete_hooks = _incomplete_after_hooks(conn, config)
+            if incomplete_hooks:
+                if after_sql is None:
+                    raise MigrationError(
+                        "Post-migration hooks are incomplete, but after_each_migration_sql is not configured"
+                    )
+                for version in incomplete_hooks:
+                    _run_after_hook(conn, cur, config, after_sql, version)
 
             if reconstruction:
                 pending = []
@@ -417,10 +478,12 @@ def apply(
                             )
                         cur.execute(migration.sql)
                         cur.execute(
-                            sql.SQL("INSERT INTO {} (version, filename, checksum) VALUES (%s, %s, %s)").format(
+                            sql.SQL(
+                                "INSERT INTO {} (version, filename, checksum, post_hook_completed) VALUES (%s, %s, %s, %s)"
+                            ).format(
                                 _identifier(config.migration_table)
                             ),
-                            (migration.version, migration.filename, migration.checksum),
+                            (migration.version, migration.filename, migration.checksum, after_sql is None),
                         )
                         conn.commit()
                         break
@@ -446,10 +509,12 @@ def apply(
                             raise
                         conn.rollback()
                         cur.execute(
-                            sql.SQL("INSERT INTO {} (version, filename, checksum) VALUES (%s, %s, %s)").format(
+                            sql.SQL(
+                                "INSERT INTO {} (version, filename, checksum, post_hook_completed) VALUES (%s, %s, %s, %s)"
+                            ).format(
                                 _identifier(config.migration_table)
                             ),
-                            (migration.version, migration.filename, migration.checksum),
+                            (migration.version, migration.filename, migration.checksum, after_sql is None),
                         )
                         conn.commit()
                         skipped_names.append(migration.filename)
@@ -459,9 +524,9 @@ def apply(
                     continue
 
                 if after_sql and not reconstruction:
-                    _run_after_hook(conn, cur, config, after_sql)
+                    _run_after_hook(conn, cur, config, after_sql, migration.version)
                 elif after_sql and migration.version in config.reconstruction_after_hook_versions:
-                    _run_after_hook(conn, cur, config, after_sql)
+                    _run_after_hook(conn, cur, config, after_sql, None)
                 applied_names.append(migration.filename)
 
                 if reconstruction and config.fresh_vacuum_after_each_migration:
@@ -472,7 +537,7 @@ def apply(
                         conn.autocommit = False
 
             if after_sql and reconstruction and (applied_names or skipped_names):
-                _run_after_hook(conn, cur, config, after_sql)
+                _run_after_hook(conn, cur, config, after_sql, None)
 
             if not skip_advisory_lock:
                 cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))

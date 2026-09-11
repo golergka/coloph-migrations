@@ -107,6 +107,34 @@ Use `apply --up-to 012` to apply
 versions before `012` (the boundary is exclusive). `apply --reconstruction` enables
 only the disposable-database policies configured for reconstruction.
 
+## Hooks
+
+Configure hooks when migrations need setup or follow-up work that is not part of
+the migration SQL itself:
+
+```toml
+before_each_migration_sql = "migrations/before_each.sql"
+after_each_migration_sql = "migrations/after_each.sql"
+post_max_attempts = 5
+post_statement_timeout_seconds = 30
+post_lock_timeout_seconds = 10
+reconstruction_after_hook_versions = ["0186"]
+```
+
+The pre-migration hook runs inside each migration transaction. If it fails, the
+migration rolls back. The post-migration hook runs after that migration commits,
+in a separate transaction. A failed post hook remains marked incomplete; the
+next `apply` retries incomplete hooks before it runs a new migration or reports
+success. Hook SQL must therefore support safe retries. `post_max_attempts`
+controls retries during one run, and `post_statement_timeout_seconds` controls
+the hook statement timeout.
+
+Reconstruction runs post hooks at configured checkpoint versions and once after
+the selected schema is rebuilt. If a post-hook file is missing, restore it or
+configure the correct `after_each_migration_sql` path, then run `apply` again.
+If the hook SQL changed, restore the version that safely completes the pending
+work (or make the replacement safely retryable) before applying new migrations.
+
 ## What it prevents
 
 | Problem | Example | Guardrail |
@@ -172,9 +200,9 @@ deployed_fetch_remote = "origin" # optional; refresh deployed_ref before backwar
 
 # Optional. The before file runs in the migration transaction. During normal
 # apply, the after file runs in a separate transaction after each migration is
-# recorded and committed. During reconstruction, the after file runs at any
-# configured checkpoint versions and once after the selected schema is fully
-# rebuilt.
+# recorded and committed. Failed after hooks are retried before later applies
+# continue. During reconstruction, the after file runs at any configured
+# checkpoint versions and once after the selected schema is fully rebuilt.
 before_each_migration_sql = "migrations/before_each.sql"
 after_each_migration_sql = "migrations/after_each.sql"
 
