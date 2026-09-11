@@ -1,7 +1,11 @@
 from pathlib import Path
 import subprocess
 
+import pytest
+
+from coloph_migrations import cli
 from coloph_migrations.cli import _database_url_from_environment, run
+from coloph_migrations.migrations import MigrationError
 
 
 def test_init_creates_config_and_migrations_directory(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -22,11 +26,35 @@ def test_init_creates_config_and_migrations_directory(tmp_path: Path, monkeypatc
         "Created migrations/\n"
         "Created migrations/0001_init.sql\n"
         "Created .env\n"
+        "Created skills/change-database-schema/SKILL.md\n"
+        "Created skills/repair-database-schema/SKILL.md\n"
         "\nNext:\n"
         "1. Set DATABASE_URL in .env.\n"
         "2. Add the initial schema to migrations/0001_init.sql.\n"
         "3. Run coloph-migrate plan.\n"
     )
+
+
+def test_init_installs_skills_and_is_repeatable(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    run(["init"])
+    capsys.readouterr()
+    for name in ("change-database-schema", "repair-database-schema"):
+        assert f"name: {name}" in (tmp_path / "skills" / name / "SKILL.md").read_text()
+    run(["--json", "init"])
+    assert capsys.readouterr().out == '{"created": []}\n'
+
+
+def test_init_rejects_skill_conflict_before_writing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    skill = tmp_path / "skills/change-database-schema/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("Host instructions\n")
+    with pytest.raises(MigrationError, match="Skill file differs"):
+        run(["init"])
+    assert skill.read_text() == "Host instructions\n"
+    assert not (tmp_path / "coloph-migrations.toml").exists()
+    assert not (tmp_path / "skills/repair-database-schema").exists()
 
 
 def test_init_preserves_existing_files(tmp_path: Path, monkeypatch) -> None:
@@ -86,3 +114,23 @@ def test_init_warns_when_env_is_not_ignored(tmp_path: Path, monkeypatch, capsys)
     run(["init"])
 
     assert capsys.readouterr().err == "WARNING: .env is not ignored by Git. Add it to .gitignore.\n"
+
+
+def test_verify_json_reports_both_comparisons(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "verify",
+        lambda _config: {
+            "identical": False,
+            "snapshot_identical": False,
+            "target_identical": False,
+            "snapshot_diff": "snapshot diff",
+            "target_diff": "target diff",
+        },
+    )
+
+    assert run(["--json", "verify"]) == 1
+    output = capsys.readouterr().out
+    assert '"snapshot_diff": "snapshot diff"' in output
+    assert '"target_diff": "target diff"' in output

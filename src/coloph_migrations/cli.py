@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,7 @@ from .config import DEFAULT_CONFIG_NAME, load_config, override_config
 from .git_checks import check_chain
 from .migrations import MIGRATION_RE, MigrationError, apply, check_current, plan, statuses
 from .repair import repair_checksums
-from .schema import snapshot, validate
+from .schema import snapshot, validate, verify
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -27,7 +28,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", dest="json_output")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("init", help="Create the configuration and migrations directory")
+    sub.add_parser("init", help="Create configuration, migrations, and host-project skills")
     apply_parser = sub.add_parser("apply", help="Apply pending migrations")
     apply_parser.add_argument("--up-to")
     apply_parser.add_argument("--dangerously-skip-advisory-lock", action="store_true")
@@ -37,7 +38,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Apply disposable-database policies configured for schema reconstruction",
     )
     sub.add_parser("list", help="List applied and pending migrations")
-    sub.add_parser("plan", help="List pending migrations; fail on applied checksum drift")
+    sub.add_parser("plan", help="List pending migrations; fail on invalid applied history")
     sub.add_parser("check", help="Fail unless every migration is applied and unchanged")
 
     snapshot_parser = sub.add_parser("snapshot", help="Write the canonical schema snapshot")
@@ -50,6 +51,8 @@ def _parser() -> argparse.ArgumentParser:
     validate_parser = sub.add_parser("validate", help="Compare target schema with a reconstructed database")
     validate_parser.add_argument("--match-applied", action="store_true")
     validate_parser.add_argument("--up-to")
+
+    sub.add_parser("verify", help="Verify migrations, snapshot, and target schema")
 
     repair_parser = sub.add_parser("repair-checksums", help="Repair checksums only after schema equivalence")
     repair_parser.add_argument("--dry-run", action="store_true")
@@ -86,6 +89,14 @@ def run(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "init":
         config_path = (args.config or Path(DEFAULT_CONFIG_NAME)).resolve()
+        skill_files = {
+            config_path.parent / "skills" / name / "SKILL.md":
+            files("coloph_migrations").joinpath("skills", name, "SKILL.md").read_text(encoding="utf-8")
+            for name in ("change-database-schema", "repair-database-schema")
+        }
+        for path, content in skill_files.items():
+            if path.exists() and path.read_text(encoding="utf-8") != content:
+                raise MigrationError(f"Skill file differs: {path}; reconcile or move it before running init")
         env_path = config_path.parent / ".env"
         created: list[Path] = []
         if not config_path.exists():
@@ -107,6 +118,11 @@ def run(argv: list[str] | None = None) -> int:
         if not env_path.exists():
             env_path.write_text("DATABASE_URL=\n", encoding="utf-8")
             created.append(env_path)
+        for path, content in skill_files.items():
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+                created.append(path)
         try:
             ignore_check = subprocess.run(
                 ["git", "check-ignore", "--quiet", "--", ".env"],
@@ -172,6 +188,11 @@ def run(argv: list[str] | None = None) -> int:
         )
     elif command == "validate":
         result = validate(config, match_applied=args.match_applied, up_to=args.up_to)
+        if not result["identical"]:
+            _render(result, json_output=args.json_output)
+            return 1
+    elif command == "verify":
+        result = verify(config)
         if not result["identical"]:
             _render(result, json_output=args.json_output)
             return 1

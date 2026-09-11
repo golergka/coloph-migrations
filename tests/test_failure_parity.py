@@ -9,7 +9,7 @@ import pytest
 from coloph_migrations.config import Config
 from coloph_migrations.migrations import MigrationError, apply, check_current, discover_migrations, plan, statuses
 from coloph_migrations.repair import repair_checksums
-from coloph_migrations.schema import validate
+from coloph_migrations.schema import canonical_schema, validate, verify
 
 
 def _config(tmp_path: Path, database_url: str, **changes) -> Config:
@@ -79,9 +79,7 @@ def test_apply_rejects_zero_attempts_before_changing_database(tmp_path: Path, da
     assert _regclass(database_url, "schema_migrations") is None
 
 
-def test_plan_reports_pending_but_fails_checksum_drift_and_releases_lock(
-    tmp_path: Path, database_url: str
-) -> None:
+def test_plan_reports_pending_but_fails_checksum_drift_and_releases_lock(tmp_path: Path, database_url: str) -> None:
     config = _config(tmp_path, database_url)
     migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
     apply(config)
@@ -92,27 +90,49 @@ def test_plan_reports_pending_but_fails_checksum_drift_and_releases_lock(
 
     migration.write_text("CREATE TABLE widgets(id bigint);\n", encoding="utf-8")
     with psycopg.connect(database_url) as conn:
-        with pytest.raises(MigrationError, match="checksum mismatch"):
+        with pytest.raises(MigrationError, match="checksum differs"):
             plan(conn, config)
     with psycopg.connect(database_url) as conn:
         assert conn.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (config.advisory_lock_name,)).fetchone()[0]
         conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
 
 
-def test_renamed_and_orphan_history_are_reported_but_do_not_block_current_check(
-    tmp_path: Path, database_url: str
-) -> None:
+@pytest.mark.parametrize("history_check", [check_current, plan])
+def test_history_checks_reject_renamed_migration(tmp_path: Path, database_url: str, history_check) -> None:
     config = _config(tmp_path, database_url)
     migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
     apply(config)
     migration.rename(config.migrations_dir / "0001_renamed.sql")
+
     with psycopg.connect(database_url) as conn:
-        conn.execute(
-            "INSERT INTO schema_migrations(version, filename, checksum) VALUES ('9999', '9999_old.sql', 'old')"
-        )
-        conn.commit()
-        states = [item.status for item in check_current(conn, config)]
-    assert states == ["renamed", "orphan"]
+        with pytest.raises(MigrationError, match=r"version 0001.*renamed from 0001_widgets\.sql to 0001_renamed\.sql"):
+            history_check(conn, config)
+
+
+@pytest.mark.parametrize("history_check", [check_current, plan])
+def test_history_checks_reject_rename_with_checksum_drift(tmp_path: Path, database_url: str, history_check) -> None:
+    config = _config(tmp_path, database_url)
+    migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    migration.rename(config.migrations_dir / "0001_renamed.sql")
+    (config.migrations_dir / "0001_renamed.sql").write_text("CREATE TABLE widgets(id bigint);\n", encoding="utf-8")
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(MigrationError, match=r"version 0001.*renamed.*checksum differs"):
+            history_check(conn, config)
+
+
+@pytest.mark.parametrize("history_check", [check_current, plan])
+def test_history_checks_reject_orphaned_migration(tmp_path: Path, database_url: str, history_check) -> None:
+    config = _config(tmp_path, database_url)
+    first = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    _write(config, "0002_valid.sql", "SELECT 2;\n")
+    apply(config)
+    first.unlink()
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(MigrationError, match=r"version 0001 \(0001_widgets\.sql\): file is missing"):
+            history_check(conn, config)
 
 
 def test_before_hook_failure_rolls_back_migration(tmp_path: Path, database_url: str) -> None:
@@ -229,6 +249,85 @@ def test_validate_detects_schema_drift(tmp_path: Path, database_url: str) -> Non
     result = validate(config)
     assert result["identical"] is False
     assert "drift" in result["diff"]
+
+
+def test_verify_accepts_matching_schemas_and_schema_docs(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    schema = canonical_schema(config, database_url)
+    config.schema_snapshot.write_text("-- schema-doc: owner: platform\n" + schema, encoding="utf-8")
+    with psycopg.connect(database_url) as conn:
+        history_before = conn.execute("SELECT version, filename, checksum FROM schema_migrations").fetchall()
+
+    result = verify(config)
+
+    assert result["identical"] is True
+    assert result["snapshot_identical"] is True
+    assert result["target_identical"] is True
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT version, filename, checksum FROM schema_migrations").fetchall() == history_before
+
+
+def test_verify_reports_snapshot_and_target_differences(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    config.schema_snapshot.write_text("CREATE TABLE stale(id integer);\n", encoding="utf-8")
+    with psycopg.connect(database_url) as conn:
+        conn.execute("ALTER TABLE widgets ADD COLUMN drift text")
+        conn.commit()
+
+    result = verify(config)
+
+    assert result["identical"] is False
+    assert result["snapshot_identical"] is False
+    assert result["target_identical"] is False
+    assert "--- snapshot" in result["snapshot_diff"]
+    assert "stale" in result["snapshot_diff"]
+    assert "--- target" in result["target_diff"]
+    assert "drift" in result["target_diff"]
+
+
+def test_verify_missing_snapshot_fails_without_creating_it(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+
+    result = verify(config)
+
+    assert result["identical"] is False
+    assert result["snapshot_exists"] is False
+    assert "+++ rebuilt" in result["snapshot_diff"]
+    assert not config.schema_snapshot.exists()
+
+
+def test_verify_rejects_pending_history_before_reconstruction(tmp_path: Path, database_url: str, monkeypatch) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    _write(config, "0002_pending.sql", "CREATE TABLE pending(id integer);\n")
+    monkeypatch.setattr(
+        "coloph_migrations.schema.temporary_database",
+        lambda _config: pytest.fail("reconstruction must not start"),
+    )
+
+    with pytest.raises(MigrationError, match="pending"):
+        verify(config)
+
+
+def test_verify_does_not_create_missing_history_table(tmp_path: Path, database_url: str, monkeypatch) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    monkeypatch.setattr(
+        "coloph_migrations.schema.temporary_database",
+        lambda _config: pytest.fail("reconstruction must not start"),
+    )
+
+    with pytest.raises(MigrationError, match="tracking table .* does not exist"):
+        verify(config)
+
+    assert _regclass(database_url, config.migration_table) is None
 
 
 def test_checksum_repair_requires_schema_equivalence(tmp_path: Path, database_url: str) -> None:
