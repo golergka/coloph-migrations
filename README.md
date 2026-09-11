@@ -64,6 +64,9 @@ process arguments.
 # Show applied and pending migrations
 uv run coloph-migrate list
 
+# Execute the selected migration chain in disposable PostgreSQL before applying it
+uv run coloph-migrate dry-run
+
 # Require that every migration is applied and its checksum still matches
 uv run coloph-migrate check
 
@@ -97,6 +100,7 @@ only the disposable-database policies configured for reconstruction.
 | Edited history | `004_add_index.sql` changes after production applied it | `plan` and `check` reject checksum drift. |
 | Bad ordering | A branch adds `007_*.sql` while `main` already has `007_*.sql` | `check-chain` detects collisions across refs. |
 | Partial change | A migration's second statement fails | Each migration runs in one transaction, so it rolls back. |
+| Transaction escape | A migration commits with `END` or another transaction command | `dry-run` compares PostgreSQL transaction IDs around every migration. |
 | Snapshot lies | `schema.sql` no longer matches executable migrations | `validate` reconstructs and compares schemas. |
 | Unsafe checksum repair | Someone wants to accept modified applied SQL | `repair-checksums` requires schema equivalence first. |
 | Unsafe deploy | New schema breaks currently deployed code | `check-backwards` tests deployed code against it. |
@@ -139,6 +143,7 @@ Explicit CLI flags override configuration files.
 ```text
 coloph-migrate init
 coloph-migrate apply
+coloph-migrate dry-run
 coloph-migrate list
 coloph-migrate plan
 coloph-migrate check
@@ -157,7 +162,8 @@ hook at explicit checkpoint versions, and then runs it once against the rebuilt
 schema. This keeps historical reconstructions from repeatedly validating every
 intermediate schema while preserving known migration-chain dependencies.
 Ordinary production `apply` remains fail-loud and keeps per-migration after
-hooks.
+hooks. It first performs the same migration chain as `dry-run`, so a failed
+disposable run leaves the target database unchanged.
 
 ## Coloph dependency workflow
 

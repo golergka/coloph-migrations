@@ -1,6 +1,7 @@
 from pathlib import Path
 import subprocess
 
+from coloph_migrations import cli
 from coloph_migrations.cli import _database_url_from_environment, run
 
 
@@ -77,6 +78,19 @@ def test_database_url_precedence(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setenv("COLOPH_MIGRATIONS_DATABASE_URL", "postgresql://coloph-environment")
     assert _database_url_from_environment(tmp_path) == "postgresql://coloph-environment"
+
+
+def test_dry_run_command_uses_disposable_database(tmp_path: Path, monkeypatch, capsys) -> None:
+    config_path = tmp_path / "coloph-migrations.toml"
+    config_path.write_text('migrations_dir = "migrations"\n', encoding="utf-8")
+    observed = []
+    monkeypatch.setattr(cli, "dry_run", lambda config, *, up_to: observed.append((config, up_to)) or {"applied": []})
+
+    assert run(["--config", str(config_path), "dry-run", "--up-to", "0002"]) == 0
+
+    assert observed[0][0].database_url is None
+    assert observed[0][1] == "0002"
+    assert capsys.readouterr().out == "applied: []\n"
 
 
 def test_init_warns_when_env_is_not_ignored(tmp_path: Path, monkeypatch, capsys) -> None:

@@ -14,7 +14,6 @@ from .config import Config
 
 
 MIGRATION_RE = re.compile(r"^(\d+)_.*\.sql$")
-TRANSACTION_CONTROL_RE = re.compile(r"^\s*(BEGIN|COMMIT|ROLLBACK)\s*;", re.MULTILINE | re.IGNORECASE)
 
 
 class MigrationError(RuntimeError):
@@ -59,11 +58,6 @@ def discover_migrations(directory: Path, *, up_to: str | None = None) -> list[Mi
         if up_to is not None and int(version) >= int(up_to):
             continue
         text = path.read_text(encoding="utf-8")
-        tx_match = TRANSACTION_CONTROL_RE.search(text)
-        if tx_match:
-            raise MigrationError(
-                f"Migration {path.name} contains explicit {tx_match.group(1).upper()} transaction control"
-            )
         versions.append(int(version))
         migrations.append(Migration(version, path, text, checksum_sql(text)))
 
@@ -164,12 +158,7 @@ def check_current(conn: psycopg.Connection, config: Config) -> list[MigrationSta
 
 
 def plan(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
-    """Return pending work while preserving the legacy dry-run contract.
-
-    Pending migrations are reported, not rejected. Applied checksum drift is
-    fatal. The session advisory lock keeps the answer consistent with a
-    concurrent apply, matching the old Coloph dry-run behavior.
-    """
+    """Return pending work and reject applied checksum drift."""
     _ensure_table(conn, config)
     with conn.cursor() as cur:
         cur.execute("SET lock_timeout = '5s'")
@@ -321,6 +310,7 @@ def apply(
     skip_advisory_lock: bool = False,
     up_to: str | None = None,
     reconstruction: bool = False,
+    check_transaction_boundaries: bool = False,
 ) -> dict[str, object]:
     if config.database_url is None:
         raise MigrationError("database_url is required")
@@ -330,6 +320,8 @@ def apply(
     apply_max_attempts = _positive_attempt_count("apply_max_attempts", config.apply_max_attempts)
     if after_sql:
         _positive_attempt_count("post_max_attempts", config.post_max_attempts)
+    if not reconstruction and not check_transaction_boundaries:
+        dry_run(config, up_to=up_to)
     concurrent_ddl_max_attempts = (
         _positive_attempt_count("concurrent_ddl_max_attempts", config.concurrent_ddl_max_attempts)
         if reconstruction
@@ -399,7 +391,16 @@ def apply(
                                 "SELECT set_config('statement_timeout', %s, true)",
                                 (f"{config.fresh_statement_timeout_seconds}s",),
                             )
+                        if check_transaction_boundaries:
+                            transaction_id = cur.execute("SELECT pg_current_xact_id()").fetchone()[0]
                         cur.execute(migration.sql)
+                        if check_transaction_boundaries:
+                            after_transaction_id = cur.execute("SELECT pg_current_xact_id()").fetchone()[0]
+                            if after_transaction_id != transaction_id:
+                                raise MigrationError(
+                                    f"Migration {migration.filename} changed its transaction "
+                                    f"({transaction_id} to {after_transaction_id})"
+                                )
                         cur.execute(
                             sql.SQL("INSERT INTO {} (version, filename, checksum) VALUES (%s, %s, %s)").format(
                                 _identifier(config.migration_table)
@@ -467,6 +468,20 @@ def apply(
         "skipped": skipped_names,
         "skipped_count": len(skipped_names),
     }
+
+
+def dry_run(config: Config, *, up_to: str | None = None) -> dict[str, object]:
+    from dataclasses import replace
+
+    from .test_database import temporary_database
+
+    with temporary_database(config) as database_url:
+        return apply(
+            replace(config, database_url=database_url),
+            skip_advisory_lock=True,
+            up_to=up_to,
+            check_transaction_boundaries=True,
+        )
 
 
 def apply_to_database(config: Config, database_url: str, *, up_to: str | None = None) -> dict[str, object]:

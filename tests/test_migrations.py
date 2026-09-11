@@ -16,11 +16,12 @@ def test_discover_migrations_requires_sequential_numbers(tmp_path: Path) -> None
         discover_migrations(tmp_path)
 
 
-@pytest.mark.parametrize("statement", ["BEGIN;", " commit ;", "ROLLBACK;"])
-def test_discover_migrations_rejects_explicit_transaction_control(tmp_path: Path, statement: str) -> None:
-    _write(tmp_path / "0001_first.sql", statement)
-    with pytest.raises(MigrationError, match="explicit"):
-        discover_migrations(tmp_path)
+def test_discover_migrations_allows_transaction_keywords_inside_function_bodies(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "0001_first.sql",
+        "CREATE FUNCTION noop() RETURNS void LANGUAGE plpgsql AS $$ BEGIN NULL; END; $$;\n",
+    )
+    assert [migration.filename for migration in discover_migrations(tmp_path)] == ["0001_first.sql"]
 
 
 def test_discover_migrations_returns_checksum_and_exclusive_up_to(tmp_path: Path) -> None:
