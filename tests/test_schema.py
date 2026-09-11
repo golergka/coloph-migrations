@@ -43,9 +43,27 @@ def test_restore_schema_doc_comments() -> None:
 
 
 def test_strip_schema_doc_comments_ignores_only_supported_comments() -> None:
-    schema = "-- schema-doc: owner: team\n-- ordinary comment\nCREATE TABLE widgets(id integer);\n"
+    schema = "-- schema-doc: owner: team\nCREATE TABLE widgets(id integer);\n-- ordinary comment\n"
 
-    assert strip_schema_doc_comments(schema) == "-- ordinary comment\nCREATE TABLE widgets(id integer);\n"
+    assert strip_schema_doc_comments(schema) == "CREATE TABLE widgets(id integer);\n-- ordinary comment\n"
+
+
+def test_strip_schema_doc_comments_preserves_dangling_annotation() -> None:
+    schema = "CREATE TABLE widgets(id integer);\n-- schema-doc: owner: team\n"
+
+    assert strip_schema_doc_comments(schema) == schema
+
+
+def test_strip_schema_doc_comments_preserves_function_body_comments() -> None:
+    schema = """CREATE FUNCTION widget_count() RETURNS integer AS $$
+BEGIN
+-- schema-doc: this is part of the function body
+RETURN 1;
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+    assert strip_schema_doc_comments(schema) == schema
 
 
 def test_pg_dump_keeps_password_out_of_command_arguments(monkeypatch) -> None:

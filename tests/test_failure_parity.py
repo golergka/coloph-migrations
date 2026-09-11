@@ -411,6 +411,38 @@ def test_verify_rejects_pending_history_before_reconstruction(tmp_path: Path, da
         verify(config)
 
 
+@pytest.mark.parametrize(
+    ("invalid_state", "message"),
+    [
+        ("checksum", "checksum differs"),
+        ("renamed", "renamed from"),
+        ("orphan", "file is missing"),
+    ],
+)
+def test_verify_rejects_invalid_applied_history_before_reconstruction(
+    tmp_path: Path, database_url: str, monkeypatch, invalid_state: str, message: str
+) -> None:
+    config = _config(tmp_path, database_url)
+    first = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    if invalid_state == "orphan":
+        _write(config, "0002_second.sql", "CREATE TABLE second(id integer);\n")
+    apply(config)
+
+    if invalid_state == "checksum":
+        first.write_text("CREATE TABLE widgets(id bigint);\n", encoding="utf-8")
+    elif invalid_state == "renamed":
+        first.rename(config.migrations_dir / "0001_renamed.sql")
+    else:
+        first.unlink()
+    monkeypatch.setattr(
+        "coloph_migrations.schema.temporary_database",
+        lambda _config: pytest.fail("reconstruction must not start"),
+    )
+
+    with pytest.raises(MigrationError, match=message):
+        verify(config)
+
+
 def test_verify_does_not_create_missing_history_table(tmp_path: Path, database_url: str, monkeypatch) -> None:
     config = _config(tmp_path, database_url)
     _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
