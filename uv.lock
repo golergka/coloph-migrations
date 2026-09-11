@@ -98,18 +98,18 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "coloph-sync", specifier = "==0.3.1" },
+    { name = "coloph-sync", specifier = "==0.3.2" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
 ]
 
 [[package]]
 name = "coloph-sync"
-version = "0.3.1"
+version = "0.3.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/90/2e/222cc980147cfd4cfbeb6b4daa19003dd7c26249817159f56aa8834e174e/coloph_sync-0.3.1.tar.gz", hash = "sha256:26bebd04390a1c35a36cb0a9b6027910e5b17421f307dd83abae3e9b89a19c58", size = 36783, upload-time = "2026-09-11T03:52:09.146Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/e6/23f3371b6a03019ee07529ccf561354ac6ab84f6f0bae526491d18d6d8a6/coloph_sync-0.3.2.tar.gz", hash = "sha256:508defc5221a241520fd0b351cd5851a986a95d0097112727dc5e341c169dd7b", size = 45888, upload-time = "2026-09-11T05:54:12.924Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/29/c7/f9dd3065661b72b3fe23afe461dab8af3fd51fd643d17adde7ff70aa865f/coloph_sync-0.3.1-py3-none-any.whl", hash = "sha256:b79a9ee587678a9e267b8514d388bbee17df880916fdd6c9f003cde57c816a2d", size = 32564, upload-time = "2026-09-11T03:52:08.176Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/d3/4a4b6bc475a83717ffed7fd6ebe1505bede8354b511a081c0303279b5b3e/coloph_sync-0.3.2-py3-none-any.whl", hash = "sha256:35fda7a38d0504e62a52b600487f4e6973ced3df8e46c4ee4c5515d239c1c7a8", size = 35315, upload-time = "2026-09-11T05:54:11.929Z" },
 ]
 
 [[package]]
