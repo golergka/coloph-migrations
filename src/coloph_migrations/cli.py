@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -27,7 +28,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", dest="json_output")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("init", help="Create the configuration and migrations directory")
+    sub.add_parser("init", help="Create configuration, migrations, and host-project skills")
     apply_parser = sub.add_parser("apply", help="Apply pending migrations")
     apply_parser.add_argument("--up-to")
     apply_parser.add_argument("--dangerously-skip-advisory-lock", action="store_true")
@@ -86,6 +87,14 @@ def run(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "init":
         config_path = (args.config or Path(DEFAULT_CONFIG_NAME)).resolve()
+        skill_files = {
+            config_path.parent / "skills" / name / "SKILL.md":
+            files("coloph_migrations").joinpath("skills", name, "SKILL.md").read_text(encoding="utf-8")
+            for name in ("change-database-schema", "repair-database-schema")
+        }
+        for path, content in skill_files.items():
+            if path.exists() and path.read_text(encoding="utf-8") != content:
+                raise MigrationError(f"Skill file differs: {path}; reconcile or move it before running init")
         env_path = config_path.parent / ".env"
         created: list[Path] = []
         if not config_path.exists():
@@ -107,6 +116,11 @@ def run(argv: list[str] | None = None) -> int:
         if not env_path.exists():
             env_path.write_text("DATABASE_URL=\n", encoding="utf-8")
             created.append(env_path)
+        for path, content in skill_files.items():
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+                created.append(path)
         try:
             ignore_check = subprocess.run(
                 ["git", "check-ignore", "--quiet", "--", ".env"],
