@@ -54,6 +54,16 @@ uv run coloph-migrate apply
 uv run coloph-migrate snapshot
 ```
 
+Create each later migration with a normalized name. The command verifies the
+existing sequence and writes the next padded number:
+
+```sh
+uv run coloph-migrate new add_accounts
+# creates migrations/0002_add_accounts.sql
+```
+
+Use a project-specific starter file with `new add_accounts --template path/to/template.sql`.
+
 Use an ignored `coloph-migrations.local.toml` for local credentials and
 overrides. `COLOPH_MIGRATIONS_DATABASE_URL` keeps the URL out of files and
 process arguments.
@@ -63,6 +73,9 @@ process arguments.
 ```sh
 # Show applied and pending migrations
 uv run coloph-migrate list
+
+# Create the next numbered migration
+uv run coloph-migrate new add_accounts
 
 # Require that every migration is applied and its checksum still matches
 uv run coloph-migrate check
@@ -138,6 +151,7 @@ Explicit CLI flags override configuration files.
 
 ```text
 coloph-migrate init
+coloph-migrate new NAME [--template PATH]
 coloph-migrate apply
 coloph-migrate list
 coloph-migrate plan

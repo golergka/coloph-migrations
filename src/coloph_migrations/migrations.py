@@ -14,7 +14,9 @@ from .config import Config
 
 
 MIGRATION_RE = re.compile(r"^(\d+)_.*\.sql$")
+MIGRATION_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 TRANSACTION_CONTROL_RE = re.compile(r"^\s*(BEGIN|COMMIT|ROLLBACK)\s*;", re.MULTILINE | re.IGNORECASE)
+DEFAULT_MIGRATION_TEMPLATE = "-- Add migration SQL here.\n"
 
 
 class MigrationError(RuntimeError):
@@ -46,7 +48,10 @@ def checksum_sql(text: str) -> str:
 
 
 def discover_migrations(directory: Path, *, up_to: str | None = None) -> list[Migration]:
-    paths = sorted(path for path in directory.glob("*.sql") if MIGRATION_RE.fullmatch(path.name))
+    paths = sorted(
+        (path for path in directory.glob("*.sql") if MIGRATION_RE.fullmatch(path.name)),
+        key=lambda path: int(MIGRATION_RE.fullmatch(path.name).group(1)),  # type: ignore[union-attr]
+    )
     if not paths:
         raise MigrationError(f"No numbered SQL migrations found in {directory}")
 
@@ -74,6 +79,29 @@ def discover_migrations(directory: Path, *, up_to: str | None = None) -> list[Mi
                 f"Migration sequence gap: {current:04d} follows {previous:04d}; expected {previous + 1:04d}"
             )
     return migrations
+
+
+def create_migration(directory: Path, name: str, *, template: Path | None = None) -> Path:
+    normalized_name = re.sub(r"[\s-]+", "_", name.strip().lower()).strip("_")
+    if not MIGRATION_NAME_RE.fullmatch(normalized_name):
+        raise MigrationError(
+            "Migration name must start with a letter and contain only letters, numbers, spaces, hyphens, or underscores"
+        )
+    migrations = discover_migrations(directory)
+    version = f"{int(migrations[-1].version) + 1:04d}"
+    path = directory / f"{version}_{normalized_name}.sql"
+    if path.exists():
+        raise MigrationError(f"Migration already exists: {path}")
+    try:
+        contents = template.read_text(encoding="utf-8") if template is not None else DEFAULT_MIGRATION_TEMPLATE
+    except OSError as exc:
+        raise MigrationError(f"Unable to read migration template {template}: {exc}") from exc
+    try:
+        with path.open("x", encoding="utf-8") as file:
+            file.write(contents)
+    except FileExistsError as exc:
+        raise MigrationError(f"Migration already exists: {path}") from exc
+    return path
 
 
 def _identifier(name: str) -> sql.Identifier:
