@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import subprocess
 
@@ -6,6 +7,13 @@ import pytest
 from coloph_migrations import cli
 from coloph_migrations.cli import _database_url_from_environment, run
 from coloph_migrations.migrations import MigrationError
+
+
+def _git_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        env.pop(name, None)
+    return env
 
 
 def test_init_creates_config_and_migrations_directory(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -185,11 +193,17 @@ def test_dry_run_command_uses_disposable_database(tmp_path: Path, monkeypatch, c
 
 
 def test_init_warns_when_env_is_not_ignored(tmp_path: Path, monkeypatch, capsys) -> None:
-    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "caller.git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "caller.index"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(tmp_path / "caller-worktree"))
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, env=_git_env(), check=True)
+    for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        monkeypatch.delenv(name)
     monkeypatch.chdir(tmp_path)
 
     run(["init"])
 
+    assert (tmp_path / ".git").is_dir()
     assert capsys.readouterr().err == "WARNING: .env is not ignored by Git. Add it to .gitignore.\n"
 
 
