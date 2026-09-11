@@ -11,7 +11,7 @@ if [ "$mode" != commit ]; then
         exit 2
     fi
     uv lock --check
-    uv run pytest -q
+    env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE uv run pytest -q
 fi
 
 if [ "$mode" = integration ]; then
