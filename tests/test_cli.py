@@ -89,6 +89,70 @@ def test_init_does_not_add_an_initial_file_to_existing_migrations(tmp_path: Path
     assert not (migrations / "0001_init.sql").exists()
 
 
+def test_new_creates_the_next_normalized_migration(tmp_path: Path, monkeypatch) -> None:
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_init.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert run(["new", "Add accounts"]) == 0
+
+    assert (migrations / "0002_add_accounts.sql").read_text(encoding="utf-8") == "-- Add migration SQL here.\n"
+
+
+def test_new_uses_the_configured_directory_and_template(tmp_path: Path, monkeypatch) -> None:
+    migrations = tmp_path / "db/migrations"
+    migrations.mkdir(parents=True)
+    (migrations / "0001_init.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (migrations / "0002_accounts.sql").write_text("SELECT 2;\n", encoding="utf-8")
+    template = tmp_path / "migration.sql"
+    template.write_text("CREATE TABLE example ();\n", encoding="utf-8")
+    (tmp_path / "coloph-migrations.toml").write_text('migrations_dir = "db/migrations"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert run(["new", "events", "--template", str(template)]) == 0
+
+    assert (migrations / "0003_events.sql").read_text(encoding="utf-8") == "CREATE TABLE example ();\n"
+
+
+@pytest.mark.parametrize("name", ["", "123_accounts", "accounts/old", "accounts.sql"])
+def test_new_rejects_invalid_names(tmp_path: Path, monkeypatch, name: str) -> None:
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_init.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(MigrationError, match="Migration name"):
+        run(["new", name])
+
+    assert sorted(migrations.iterdir()) == [migrations / "0001_init.sql"]
+
+
+def test_new_rejects_an_invalid_sequence_without_creating_a_file(tmp_path: Path, monkeypatch) -> None:
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_init.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (migrations / "0003_skipped.sql").write_text("SELECT 3;\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(MigrationError, match="sequence gap"):
+        run(["new", "accounts"])
+
+    assert not (migrations / "0004_accounts.sql").exists()
+
+
+def test_new_does_not_create_a_file_when_the_template_is_missing(tmp_path: Path, monkeypatch) -> None:
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_init.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(MigrationError, match="Unable to read migration template"):
+        run(["new", "accounts", "--template", "missing.sql"])
+
+    assert not (migrations / "0002_accounts.sql").exists()
+
+
 def test_database_url_precedence(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("COLOPH_MIGRATIONS_DATABASE_URL", raising=False)

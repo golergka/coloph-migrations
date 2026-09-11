@@ -14,7 +14,7 @@ import psycopg
 from .backwards import check_backwards
 from .config import DEFAULT_CONFIG_NAME, load_config, override_config
 from .git_checks import check_chain
-from .migrations import MIGRATION_RE, MigrationError, apply, check_current, dry_run, plan, statuses
+from .migrations import MIGRATION_RE, MigrationError, apply, check_current, create_migration, dry_run, plan, statuses
 from .repair import repair_checksums
 from .schema import snapshot, validate, verify
 
@@ -29,6 +29,9 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="Create configuration, migrations, and host-project skills")
+    new_parser = sub.add_parser("new", help="Create the next migration file")
+    new_parser.add_argument("name")
+    new_parser.add_argument("--template", type=Path)
     apply_parser = sub.add_parser("apply", help="Apply pending migrations")
     apply_parser.add_argument("--up-to")
     apply_parser.add_argument("--dangerously-skip-advisory-lock", action="store_true")
@@ -163,7 +166,9 @@ def run(argv: list[str] | None = None) -> int:
         schema_snapshot=args.schema_snapshot,
     )
     command = args.command
-    if command == "apply":
+    if command == "new":
+        result = {"created": str(create_migration(config.migrations_dir, args.name, template=args.template))}
+    elif command == "apply":
         result = apply(
             config,
             skip_advisory_lock=args.dangerously_skip_advisory_lock,
