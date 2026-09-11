@@ -12,9 +12,13 @@ from .test_database import temporary_database
 
 
 def _git(config: Config, *args: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        env.pop(name, None)
     return subprocess.run(
         ["git", *args],
         cwd=config.root,
+        env=env,
         capture_output=True,
         text=True,
         timeout=60,
