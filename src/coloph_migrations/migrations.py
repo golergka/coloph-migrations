@@ -123,26 +123,34 @@ def _applied(conn: psycopg.Connection, config: Config) -> list[dict]:
         )
 
 
-def statuses(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
+def _migration_state(conn: psycopg.Connection, config: Config) -> tuple[list[MigrationStatus], list[str]]:
     _ensure_table(conn, config)
     migrations = discover_migrations(config.migrations_dir)
     disk = {item.version: item for item in migrations}
     rows = _applied(conn, config)
     applied = {str(row["version"]): row for row in rows}
     result: list[MigrationStatus] = []
+    history_errors: list[str] = []
 
     for row in rows:
         version = str(row["version"])
+        applied_filename = str(row["filename"])
         local = disk.get(version)
         if local is None:
             state = "orphan"
-            filename = str(row["filename"])
-        elif local.filename != row["filename"]:
+            filename = applied_filename
+            history_errors.append(f"version {version} ({applied_filename}): file is missing")
+        elif local.filename != applied_filename:
             state = "renamed"
             filename = local.filename
+            reason = f"renamed from {applied_filename} to {local.filename}"
+            if local.checksum != row["checksum"]:
+                reason += "; checksum differs"
+            history_errors.append(f"version {version}: {reason}")
         elif local.checksum != row["checksum"]:
             state = "checksum_mismatch"
             filename = local.filename
+            history_errors.append(f"version {version} ({local.filename}): checksum differs")
         else:
             state = "applied"
             filename = local.filename
@@ -151,22 +159,25 @@ def statuses(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
     for migration in migrations:
         if migration.version not in applied:
             result.append(MigrationStatus(migration.version, migration.filename, migration.checksum, "pending"))
-    return sorted(result, key=lambda item: int(item.version))
+    return sorted(result, key=lambda item: int(item.version)), history_errors
+
+
+def statuses(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
+    return _migration_state(conn, config)[0]
 
 
 def check_current(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
-    result = statuses(conn, config)
-    problems = [item for item in result if item.status in {"pending", "checksum_mismatch"}]
+    result, problems = _migration_state(conn, config)
+    problems.extend(f"version {item.version} ({item.filename}): pending" for item in result if item.status == "pending")
     if problems:
-        detail = ", ".join(f"{item.filename}: {item.status}" for item in problems)
-        raise MigrationError(f"Migration state is not current: {detail}")
+        raise MigrationError(f"Migration state is not current: {', '.join(problems)}")
     return result
 
 
 def plan(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
     """Return pending work while preserving the legacy dry-run contract.
 
-    Pending migrations are reported, not rejected. Applied checksum drift is
+    Pending migrations are reported, not rejected. Invalid applied history is
     fatal. The session advisory lock keeps the answer consistent with a
     concurrent apply, matching the old Coloph dry-run behavior.
     """
@@ -175,14 +186,12 @@ def plan(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
         cur.execute("SET lock_timeout = '5s'")
         cur.execute("SELECT pg_advisory_lock(hashtext(%s))", (config.advisory_lock_name,))
     try:
-        result = statuses(conn, config)
-        mismatches = [item for item in result if item.status == "checksum_mismatch"]
-        if mismatches:
-            detail = ", ".join(item.filename for item in mismatches)
-            raise MigrationError(
-                f"Applied migration checksum mismatch: {detail}; "
-                "run repair-checksums only after proving schema equivalence"
-            )
+        result, history_errors = _migration_state(conn, config)
+        if history_errors:
+            detail = ", ".join(history_errors)
+            if any("checksum differs" in error for error in history_errors):
+                detail += "; run repair-checksums only after proving schema equivalence"
+            raise MigrationError(f"Applied migration history is invalid: {detail}")
         return result
     finally:
         with conn.cursor() as cur:

@@ -38,7 +38,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Apply disposable-database policies configured for schema reconstruction",
     )
     sub.add_parser("list", help="List applied and pending migrations")
-    sub.add_parser("plan", help="List pending migrations; fail on applied checksum drift")
+    sub.add_parser("plan", help="List pending migrations; fail on invalid applied history")
     sub.add_parser("check", help="Fail unless every migration is applied and unchanged")
 
     snapshot_parser = sub.add_parser("snapshot", help="Write the canonical schema snapshot")

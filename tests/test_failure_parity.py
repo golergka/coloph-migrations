@@ -79,9 +79,7 @@ def test_apply_rejects_zero_attempts_before_changing_database(tmp_path: Path, da
     assert _regclass(database_url, "schema_migrations") is None
 
 
-def test_plan_reports_pending_but_fails_checksum_drift_and_releases_lock(
-    tmp_path: Path, database_url: str
-) -> None:
+def test_plan_reports_pending_but_fails_checksum_drift_and_releases_lock(tmp_path: Path, database_url: str) -> None:
     config = _config(tmp_path, database_url)
     migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
     apply(config)
@@ -92,27 +90,49 @@ def test_plan_reports_pending_but_fails_checksum_drift_and_releases_lock(
 
     migration.write_text("CREATE TABLE widgets(id bigint);\n", encoding="utf-8")
     with psycopg.connect(database_url) as conn:
-        with pytest.raises(MigrationError, match="checksum mismatch"):
+        with pytest.raises(MigrationError, match="checksum differs"):
             plan(conn, config)
     with psycopg.connect(database_url) as conn:
         assert conn.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (config.advisory_lock_name,)).fetchone()[0]
         conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (config.advisory_lock_name,))
 
 
-def test_renamed_and_orphan_history_are_reported_but_do_not_block_current_check(
-    tmp_path: Path, database_url: str
-) -> None:
+@pytest.mark.parametrize("history_check", [check_current, plan])
+def test_history_checks_reject_renamed_migration(tmp_path: Path, database_url: str, history_check) -> None:
     config = _config(tmp_path, database_url)
     migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
     apply(config)
     migration.rename(config.migrations_dir / "0001_renamed.sql")
+
     with psycopg.connect(database_url) as conn:
-        conn.execute(
-            "INSERT INTO schema_migrations(version, filename, checksum) VALUES ('9999', '9999_old.sql', 'old')"
-        )
-        conn.commit()
-        states = [item.status for item in check_current(conn, config)]
-    assert states == ["renamed", "orphan"]
+        with pytest.raises(MigrationError, match=r"version 0001.*renamed from 0001_widgets\.sql to 0001_renamed\.sql"):
+            history_check(conn, config)
+
+
+@pytest.mark.parametrize("history_check", [check_current, plan])
+def test_history_checks_reject_rename_with_checksum_drift(tmp_path: Path, database_url: str, history_check) -> None:
+    config = _config(tmp_path, database_url)
+    migration = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    apply(config)
+    migration.rename(config.migrations_dir / "0001_renamed.sql")
+    (config.migrations_dir / "0001_renamed.sql").write_text("CREATE TABLE widgets(id bigint);\n", encoding="utf-8")
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(MigrationError, match=r"version 0001.*renamed.*checksum differs"):
+            history_check(conn, config)
+
+
+@pytest.mark.parametrize("history_check", [check_current, plan])
+def test_history_checks_reject_orphaned_migration(tmp_path: Path, database_url: str, history_check) -> None:
+    config = _config(tmp_path, database_url)
+    first = _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    _write(config, "0002_valid.sql", "SELECT 2;\n")
+    apply(config)
+    first.unlink()
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(MigrationError, match=r"version 0001 \(0001_widgets\.sql\): file is missing"):
+            history_check(conn, config)
 
 
 def test_before_hook_failure_rolls_back_migration(tmp_path: Path, database_url: str) -> None:

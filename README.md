@@ -108,7 +108,7 @@ only the disposable-database policies configured for reconstruction.
 
 | Problem | Example | Guardrail |
 | --- | --- | --- |
-| Edited history | `004_add_index.sql` changes after production applied it | `plan` and `check` reject checksum drift. |
+| Edited history | An applied migration is changed, renamed, or removed | `plan` and `check` reject the invalid history. |
 | Bad ordering | A branch adds `007_*.sql` while `main` already has `007_*.sql` | `check-chain` detects collisions across refs. |
 | Failed SQL | A migration's second statement fails | The runner rolls back its transaction; earlier migrations remain committed. See transaction-control limitations below. |
 | Schema drift | The target database differs from executable migrations | `validate` reconstructs and compares database schemas. It does not read the committed snapshot. |
