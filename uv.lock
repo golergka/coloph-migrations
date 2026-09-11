@@ -98,7 +98,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "coloph-sync", specifier = "==0.3.2" },
+    { name = "coloph-sync" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
 ]
