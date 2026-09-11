@@ -19,9 +19,9 @@ def run(*command, capture=False):
     return result.stdout.strip() if capture else ""
 
 
-def version():
-    with (ROOT / "pyproject.toml").open("rb") as stream:
-        value = tomllib.load(stream)["project"]["version"]
+def version(target):
+    content = run("git", "show", f"{target}:pyproject.toml", capture=True)
+    value = tomllib.loads(content)["project"]["version"]
     match = SEMVER.fullmatch(value)
     if not match:
         raise SystemExit(f"package version must be MAJOR.MINOR.PATCH: {value}")
@@ -90,7 +90,7 @@ def main():
     if not remote_main or remote_main[0] != target:
         raise SystemExit("delivery target is not the current origin/main")
 
-    current, numeric = version()
+    current, numeric = version(target)
     tag = f"v{current}"
     tagged = remote_tag(tag)
     releases = published_versions()

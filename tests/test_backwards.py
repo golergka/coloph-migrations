@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import replace
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -13,8 +14,15 @@ from coloph_migrations.config import Config
 from coloph_migrations.migrations import MigrationError
 
 
+def _git_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        env.pop(name, None)
+    return env
+
+
 def _run(root: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", *args], cwd=root, env=_git_env(), check=True, capture_output=True, text=True)
 
 
 def _repo(tmp_path: Path) -> Config:
@@ -68,18 +76,38 @@ def test_old_code_new_schema_success_passes(tmp_path: Path, monkeypatch: pytest.
     assert backwards.check_backwards(config)["status"] == "passed"
 
 
+def test_git_commands_ignore_callers_temporary_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = replace(_repo(tmp_path), backwards_test_command=(sys.executable, "-c", "pass"))
+    monkeypatch.setenv("GIT_INDEX_FILE", ".git/index")
+    monkeypatch.setattr(backwards, "temporary_database", lambda _config: _database())
+    monkeypatch.setattr(backwards, "apply_to_database", lambda *_args, **_kwargs: None)
+
+    assert backwards.check_backwards(config)["status"] == "passed"
+
+
 def test_fetch_refreshes_only_deployed_ref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "repo"
     root.mkdir()
     config = _repo(root)
     _run(root, "tag", "unrelated", "deployed")
     remote = tmp_path / "remote.git"
-    subprocess.run(["git", "clone", "--bare", str(root), str(remote)], check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "clone", "--bare", str(root), str(remote)],
+        env=_git_env(),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     _run(root, "remote", "add", "origin", str(remote))
     _run(root, "tag", "--force", "deployed", "HEAD")
     _run(root, "tag", "--force", "unrelated", "HEAD")
     unrelated_sha = subprocess.run(
-        ["git", "rev-parse", "unrelated"], cwd=root, check=True, capture_output=True, text=True
+        ["git", "rev-parse", "unrelated"],
+        cwd=root,
+        env=_git_env(),
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
     config = replace(
         config,
@@ -91,7 +119,12 @@ def test_fetch_refreshes_only_deployed_ref(tmp_path: Path, monkeypatch: pytest.M
 
     assert backwards.check_backwards(config)["status"] == "passed"
     assert subprocess.run(
-        ["git", "rev-parse", "unrelated"], cwd=root, check=True, capture_output=True, text=True
+        ["git", "rev-parse", "unrelated"],
+        cwd=root,
+        env=_git_env(),
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip() == unrelated_sha
 
 
