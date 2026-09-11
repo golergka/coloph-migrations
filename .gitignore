@@ -4,3 +4,4 @@ __pycache__/
 .ruff_cache/
 *.pyc
 coloph-migrations.local.toml
+coloph-sync.local.toml

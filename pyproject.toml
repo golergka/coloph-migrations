@@ -16,6 +16,7 @@ coloph-migrate = "coloph_migrations.cli:main"
 
 [dependency-groups]
 dev = [
+    "coloph-sync==0.3.1",
     "pytest>=8",
     "ruff>=0.9",
 ]

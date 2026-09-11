@@ -1,0 +1,7 @@
+main_ref = "main"
+remote = "origin"
+commit_check = ["./scripts/check", "commit"]
+merge_check = ["./scripts/check", "merge"]
+integration_check = ["./scripts/check", "integration"]
+# Replace this placeholder before starting the coordinator.
+deploy_command = ["./scripts/deploy"]
