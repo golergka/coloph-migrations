@@ -25,22 +25,15 @@ class Config:
     test_cluster_url_env: str | None = None
     migration_table: str = "schema_migrations"
     advisory_lock_name: str = "schema_migrations"
-    legacy_migration_table: str | None = None
     apply_lock_timeout_seconds: int = 2
     apply_max_attempts: int = 3
     post_lock_timeout_seconds: int = 10
     post_statement_timeout_seconds: int = 30
     post_max_attempts: int = 5
     retry_sleep_seconds: float = 2
-    concurrent_ddl_retry_versions: tuple[str, ...] = ()
-    concurrent_ddl_retry_message: str = "tuple concurrently updated"
-    concurrent_ddl_max_attempts: int = 5
-    concurrent_ddl_retry_sleep_seconds: float = 0.2
     exclude_index_patterns: tuple[str, ...] = ()
     schema_header: str = ""
-    fresh_skip_feature_not_supported: bool = False
     fresh_statement_timeout_seconds: int = 90
-    fresh_vacuum_after_each_migration: bool = False
     backwards_test_command: tuple[str, ...] = ()
     backwards_setup_command: tuple[str, ...] = ()
     backwards_test_globs: tuple[str, ...] = ()
@@ -59,7 +52,6 @@ _PATH_FIELDS = {
 }
 _TUPLE_FIELDS = {
     "exclude_index_patterns",
-    "concurrent_ddl_retry_versions",
     "reconstruction_after_hook_versions",
     "backwards_test_command",
     "backwards_setup_command",
@@ -69,7 +61,6 @@ _TUPLE_FIELDS = {
 _POSITIVE_INTEGER_FIELDS = {
     "apply_max_attempts",
     "post_max_attempts",
-    "concurrent_ddl_max_attempts",
 }
 
 
