@@ -16,6 +16,7 @@ from .test_database import temporary_database
 
 
 SCHEMA_DOC_PREFIX = "-- schema-doc:"
+_DOLLAR_QUOTE_TAG_RE = re.compile(r"\$[A-Za-z_][A-Za-z_0-9]*\$|\$\$")
 
 
 def detect_server_version(database_url: str) -> int:
@@ -119,13 +120,12 @@ def normalize_schema(raw: str, exclude_index_patterns: tuple[str, ...] = ()) -> 
         schema = re.sub(rf"^CREATE INDEX (?:IF NOT EXISTS\s+)?(?:{pattern})\b.*\n", "", schema, flags=re.MULTILINE)
     schema = re.sub(r"\n{3,}", "\n\n", schema)
 
-    tag_re = re.compile(r"\$[A-Za-z_][A-Za-z_0-9]*\$|\$\$")
     blocks: list[str] = []
     current: list[str] = []
     tag: str | None = None
     for line in schema.strip().split("\n"):
         current.append(line)
-        for match in tag_re.finditer(line):
+        for match in _DOLLAR_QUOTE_TAG_RE.finditer(line):
             found = match.group(0)
             tag = found if tag is None else None if found == tag else tag
         if tag is None and not line.strip():
@@ -150,7 +150,34 @@ def strip_top_level_comments(schema: str) -> str:
 
 
 def strip_schema_doc_comments(schema: str) -> str:
-    stripped = "\n".join(line for line in schema.splitlines() if not line.startswith(SCHEMA_DOC_PREFIX)).strip()
+    """Remove only snapshot annotations, not similarly named SQL comments.
+
+    A schema-doc annotation is a top-level comment immediately before a schema
+    statement.  PostgreSQL function bodies are commonly dollar-quoted and may
+    contain ordinary comments beginning with the same text; those are part of
+    the schema and must remain visible to ``verify``.
+    """
+    tag: str | None = None
+    schema_lines = schema.splitlines()
+    lines: list[str] = []
+    index = 0
+    while index < len(schema_lines):
+        line = schema_lines[index]
+        if tag is None and line.startswith(SCHEMA_DOC_PREFIX):
+            block_end = index
+            while block_end < len(schema_lines) and schema_lines[block_end].startswith(SCHEMA_DOC_PREFIX):
+                block_end += 1
+            # Supported annotations are contiguous and immediately precede SQL,
+            # matching the placement snapshot() preserves on regeneration.
+            if block_end < len(schema_lines) and schema_lines[block_end] and not schema_lines[block_end].startswith("--"):
+                index = block_end
+                continue
+        lines.append(line)
+        for match in _DOLLAR_QUOTE_TAG_RE.finditer(line):
+            found = match.group(0)
+            tag = found if tag is None else None if found == tag else tag
+        index += 1
+    stripped = "\n".join(lines).strip()
     return stripped + "\n" if stripped else ""
 
 
