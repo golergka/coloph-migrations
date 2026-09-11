@@ -207,12 +207,7 @@ def check_current(
 
 
 def plan(conn: psycopg.Connection, config: Config) -> list[MigrationStatus]:
-    """Return pending work while preserving the legacy dry-run contract.
-
-    Pending migrations are reported, not rejected. Invalid applied history is
-    fatal. The session advisory lock keeps the answer consistent with a
-    concurrent apply, matching the old Coloph dry-run behavior.
-    """
+    """Report pending migrations and reject invalid applied history."""
     _ensure_table(conn, config)
     with conn.cursor() as cur:
         cur.execute("SET lock_timeout = '5s'")

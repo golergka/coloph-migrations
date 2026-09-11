@@ -287,9 +287,6 @@ Ordinary production `apply` remains fail-loud and keeps per-migration after
 hooks. It first performs the same migration chain as `dry-run`, so a failed
 disposable run leaves the target database unchanged.
 
-Removed reconstruction settings and compatibility paths now fail as unknown
-configuration keys. Failed migrations always stop the run.
-
 ## Coloph dependency workflow
 
 When Coloph needs a `coloph-migrations` behavior change, edit this package
