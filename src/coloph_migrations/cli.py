@@ -14,7 +14,7 @@ import psycopg
 from .backwards import check_backwards
 from .config import DEFAULT_CONFIG_NAME, load_config, override_config
 from .git_checks import check_chain
-from .migrations import MIGRATION_RE, MigrationError, apply, check_current, plan, statuses
+from .migrations import MIGRATION_RE, MigrationError, apply, check_current, dry_run, plan, statuses
 from .repair import repair_checksums
 from .schema import snapshot, validate, verify
 
@@ -37,6 +37,8 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Apply disposable-database policies configured for schema reconstruction",
     )
+    dry_run_parser = sub.add_parser("dry-run", help="Apply migrations to a disposable database")
+    dry_run_parser.add_argument("--up-to")
     sub.add_parser("list", help="List applied and pending migrations")
     sub.add_parser("plan", help="List pending migrations; fail on invalid applied history")
     sub.add_parser("check", help="Fail unless every migration is applied and unchanged")
@@ -168,6 +170,8 @@ def run(argv: list[str] | None = None) -> int:
             up_to=args.up_to,
             reconstruction=args.reconstruction,
         )
+    elif command == "dry-run":
+        result = dry_run(config, up_to=args.up_to)
     elif command in {"list", "plan", "check"}:
         if config.database_url is None:
             raise MigrationError("database_url is required")

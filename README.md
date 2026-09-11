@@ -78,6 +78,9 @@ process arguments.
 # Show applied and pending migrations
 uv run coloph-migrate list
 
+# Execute the selected migration chain in disposable PostgreSQL before applying it
+uv run coloph-migrate dry-run
+
 # Require that every migration is applied and its checksum still matches
 uv run coloph-migrate check
 
@@ -143,6 +146,7 @@ work (or make the replacement safely retryable) before applying new migrations.
 | Bad ordering | A branch adds `007_*.sql` while `main` already has `007_*.sql` | `check-chain` detects collisions across refs. |
 | Failed SQL | A migration's second statement fails | The runner rolls back its transaction; earlier migrations remain committed. See transaction-control limitations below. |
 | Schema drift | A snapshot or target differs from executable migrations | `verify` reconstructs and compares all three schemas. |
+| Transaction escape | A migration commits with `END` or another transaction command | `dry-run` compares PostgreSQL transaction IDs around every migration. |
 | Unsafe checksum repair | Someone wants to accept modified applied SQL | `repair-checksums` requires schema equivalence first. |
 | Incompatible deployed code | New schema breaks a tested query in deployed code | Configured `check-backwards` tests exercise deployed code against the final rebuilt schema. |
 
@@ -251,6 +255,7 @@ statement line still matches. They do not become live database metadata.
 ```text
 coloph-migrate init
 coloph-migrate apply
+coloph-migrate dry-run
 coloph-migrate list
 coloph-migrate plan
 coloph-migrate check
@@ -269,7 +274,8 @@ hook at explicit checkpoint versions, and then runs it once against the rebuilt
 schema. This keeps historical reconstructions from repeatedly validating every
 intermediate schema while preserving known migration-chain dependencies.
 Ordinary production `apply` remains fail-loud and keeps per-migration after
-hooks.
+hooks. It first performs the same migration chain as `dry-run`, so a failed
+disposable run leaves the target database unchanged.
 
 Obsolete reconstruction settings and compatibility paths are scheduled for
 complete removal in [#22](https://github.com/golergka/coloph-migrations/issues/22).

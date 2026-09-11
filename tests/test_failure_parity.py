@@ -7,7 +7,7 @@ import psycopg
 import pytest
 
 from coloph_migrations.config import Config
-from coloph_migrations.migrations import MigrationError, apply, check_current, discover_migrations, plan, statuses
+from coloph_migrations.migrations import MigrationError, apply, check_current, discover_migrations, dry_run, plan, statuses
 from coloph_migrations.repair import repair_checksums
 from coloph_migrations.schema import canonical_schema, validate, verify
 
@@ -32,17 +32,52 @@ def _regclass(database_url: str, name: str):
         return conn.execute("SELECT to_regclass(%s)", (name,)).fetchone()[0]
 
 
-def test_gap_and_explicit_transaction_control_fail_before_connecting(tmp_path: Path) -> None:
+def test_gap_fails_before_connecting(tmp_path: Path) -> None:
     config = _config(tmp_path, "postgresql://unused")
     _write(config, "0001_first.sql", "SELECT 1;\n")
     _write(config, "0003_gap.sql", "SELECT 3;\n")
     with pytest.raises(MigrationError, match="sequence gap"):
         discover_migrations(config.migrations_dir)
 
-    (config.migrations_dir / "0003_gap.sql").unlink()
-    _write(config, "0002_bad.sql", "BEGIN;\nSELECT 2;\n")
-    with pytest.raises(MigrationError, match="explicit BEGIN"):
-        discover_migrations(config.migrations_dir)
+
+
+@pytest.mark.parametrize("transaction_command", ["END;", "ABORT;", "COMMIT AND CHAIN;"])
+def test_dry_run_rejects_transaction_control_without_changing_target(
+    tmp_path: Path, database_url: str, transaction_command: str
+) -> None:
+    config = _config(tmp_path, database_url)
+    _write(
+        config,
+        "0001_transaction_alias.sql",
+        f"CREATE TABLE alias_committed(id integer);\n{transaction_command}\n",
+    )
+
+    with pytest.raises(MigrationError, match=r"0001_transaction_alias.sql changed its transaction"):
+        dry_run(config)
+    assert _regclass(database_url, "alias_committed") is None
+    assert _regclass(database_url, "schema_migrations") is None
+
+
+def test_dry_run_allows_transaction_keywords_in_quoted_plpgsql(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(
+        config,
+        "0001_function.sql",
+        "CREATE FUNCTION noop() RETURNS text LANGUAGE plpgsql AS $$ BEGIN RETURN 'END; ABORT;'; END; $$;\n",
+    )
+
+    assert dry_run(config)["applied"] == ["0001_function.sql"]
+    assert _regclass(database_url, "noop") is None
+
+
+def test_apply_dry_run_failure_does_not_change_target(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_transaction_alias.sql", "CREATE TABLE committed(id integer);\nABORT;\n")
+
+    with pytest.raises(MigrationError, match=r"0001_transaction_alias.sql changed its transaction"):
+        apply(config)
+    assert _regclass(database_url, "committed") is None
+    assert _regclass(database_url, "schema_migrations") is None
 
 
 def test_migration_error_rolls_back_body_and_history(tmp_path: Path, database_url: str) -> None:
@@ -53,7 +88,7 @@ def test_migration_error_rolls_back_body_and_history(tmp_path: Path, database_ur
 
     assert _regclass(database_url, "should_rollback") is None
     with psycopg.connect(database_url) as conn:
-        assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 0
+        assert conn.execute("SELECT to_regclass('schema_migrations')").fetchone()[0] is None
 
 
 def test_checksum_drift_fails_loud(tmp_path: Path, database_url: str) -> None:
@@ -147,7 +182,7 @@ def test_before_hook_failure_rolls_back_migration(tmp_path: Path, database_url: 
     assert _regclass(database_url, "widgets") is None
 
 
-def test_after_hook_failure_keeps_committed_migration_but_rolls_back_hook(tmp_path: Path, database_url: str) -> None:
+def test_after_hook_dry_run_failure_does_not_change_target(tmp_path: Path, database_url: str) -> None:
     config = _config(tmp_path, database_url)
     _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
     after = tmp_path / "after.sql"
@@ -157,11 +192,10 @@ def test_after_hook_failure_keeps_committed_migration_but_rolls_back_hook(tmp_pa
     with pytest.raises(psycopg.errors.DivisionByZero):
         apply(config)
 
-    assert _regclass(database_url, "widgets") == "widgets"
+    assert _regclass(database_url, "widgets") is None
     assert _regclass(database_url, "hook_should_rollback") is None
     with psycopg.connect(database_url) as conn:
-        assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
-        assert conn.execute("SELECT post_hook_completed FROM schema_migrations").fetchone()[0] is False
+        assert conn.execute("SELECT to_regclass('schema_migrations')").fetchone()[0] is None
 
 
 def test_apply_retries_an_incomplete_after_hook_before_reporting_success(tmp_path: Path, database_url: str) -> None:
@@ -172,10 +206,10 @@ def test_apply_retries_an_incomplete_after_hook_before_reporting_success(tmp_pat
     config = replace(config, after_each_migration_sql=after)
 
     with pytest.raises(psycopg.errors.DivisionByZero):
-        apply(config)
+        apply(config, check_transaction_boundaries=True)
 
     after.write_text("CREATE TABLE hook_completed(id integer);\n", encoding="utf-8")
-    assert apply(config)["applied_count"] == 0
+    assert apply(config, check_transaction_boundaries=True)["applied_count"] == 0
 
     assert _regclass(database_url, "widgets") == "widgets"
     assert _regclass(database_url, "hook_completed") == "hook_completed"
@@ -191,11 +225,11 @@ def test_apply_fails_when_an_incomplete_after_hook_file_is_missing(tmp_path: Pat
     config = replace(config, after_each_migration_sql=after)
 
     with pytest.raises(psycopg.errors.DivisionByZero):
-        apply(config)
+        apply(config, check_transaction_boundaries=True)
     after.unlink()
 
     with pytest.raises(MigrationError, match="hook SQL file is missing"):
-        apply(config)
+        apply(config, check_transaction_boundaries=True)
 
 
 def test_history_table_adds_hook_state_without_a_user_migration(tmp_path: Path, database_url: str) -> None:
