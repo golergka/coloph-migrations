@@ -7,6 +7,12 @@
 - DO NOT SILENTLY EAT ERRORS.
 - ALWAYS COMMIT YOUR CHANGES.
 
+## Installed user skills
+
+- `src/coloph_migrations/skills/` contains package assets installed into a host project's `./skills/` by `coloph-migrate init`. They are not instructions for work inside this repository.
+- Every change to public CLI, configuration, migration, snapshot, validation, repair, or backwards-compatibility behavior must update every affected installed user skill in the same commit.
+- Keep skill descriptions centered on the user's goal, such as changing or repairing a database schema. Keep package reference details in the skill body or README.
+
 ## Versioning
 
 - `[project].version` in `pyproject.toml` is the sole package-version source. Runtime versions must derive from installed package metadata; do not add version literals elsewhere.
