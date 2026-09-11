@@ -141,6 +141,60 @@ def test_after_hook_failure_keeps_committed_migration_but_rolls_back_hook(tmp_pa
     assert _regclass(database_url, "hook_should_rollback") is None
     with psycopg.connect(database_url) as conn:
         assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        assert conn.execute("SELECT post_hook_completed FROM schema_migrations").fetchone()[0] is False
+
+
+def test_apply_retries_an_incomplete_after_hook_before_reporting_success(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    after = tmp_path / "after.sql"
+    after.write_text("SELECT 1 / 0;\n", encoding="utf-8")
+    config = replace(config, after_each_migration_sql=after)
+
+    with pytest.raises(psycopg.errors.DivisionByZero):
+        apply(config)
+
+    after.write_text("CREATE TABLE hook_completed(id integer);\n", encoding="utf-8")
+    assert apply(config)["applied_count"] == 0
+
+    assert _regclass(database_url, "widgets") == "widgets"
+    assert _regclass(database_url, "hook_completed") == "hook_completed"
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT post_hook_completed FROM schema_migrations").fetchone()[0] is True
+
+
+def test_apply_fails_when_an_incomplete_after_hook_file_is_missing(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    after = tmp_path / "after.sql"
+    after.write_text("SELECT 1 / 0;\n", encoding="utf-8")
+    config = replace(config, after_each_migration_sql=after)
+
+    with pytest.raises(psycopg.errors.DivisionByZero):
+        apply(config)
+    after.unlink()
+
+    with pytest.raises(MigrationError, match="hook SQL file is missing"):
+        apply(config)
+
+
+def test_history_table_adds_hook_state_without_a_user_migration(tmp_path: Path, database_url: str) -> None:
+    config = _config(tmp_path, database_url)
+    _write(config, "0001_widgets.sql", "CREATE TABLE widgets(id integer);\n")
+    with psycopg.connect(database_url) as conn:
+        conn.execute(
+            "CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, filename TEXT NOT NULL, "
+            "checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+        )
+        conn.commit()
+
+    apply(config)
+
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute(
+            "SELECT is_nullable, column_default FROM information_schema.columns "
+            "WHERE table_name = 'schema_migrations' AND column_name = 'post_hook_completed'"
+        ).fetchone() == ("NO", "true")
 
 
 def test_after_hook_runs_after_each_migration_for_normal_apply(tmp_path: Path, database_url: str) -> None:
