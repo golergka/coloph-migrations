@@ -313,6 +313,8 @@ def _apply_reconstruction_batch(
     return applied_names, skipped_names
 
 
+# MIGRATIONS MUST EITHER APPLY COMPLETELY OR CRASH THE RUN.
+# NEVER SKIP A FAILED MIGRATION. DO NOT SILENTLY EAT ERRORS.
 def apply(
     config: Config,
     *,

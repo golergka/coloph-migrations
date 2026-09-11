@@ -1,5 +1,12 @@
 # Agent instructions
 
+## Correctness
+
+- OPERATIONS MUST EITHER COMPLETE FULLY AND CORRECTLY OR FAIL LOUDLY.
+- MIGRATIONS MUST EITHER APPLY COMPLETELY OR CRASH THE RUN. NEVER SKIP A FAILED MIGRATION.
+- DO NOT SILENTLY EAT ERRORS.
+- ALWAYS COMMIT YOUR CHANGES.
+
 ## Versioning
 
 - `[project].version` in `pyproject.toml` is the sole package-version source. Runtime versions must derive from installed package metadata; do not add version literals elsewhere.
