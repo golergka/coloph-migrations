@@ -1,6 +1,6 @@
 ---
 name: sync-contributor
-description: Work on any task that changes version-controlled files in a repository managed by the sync coordinator, including committing work, repairing a failed check, or resolving an integration conflict. Use sync-finish for end-to-end closeout.
+description: Implement and commit contributor work in a repository managed by the sync coordinator, then hand it to sync-finish for integration, delivery, and closeout.
 ---
 
 Before editing, determine whether the current checkout is the checkout where the sync coordinator runs.
@@ -18,7 +18,7 @@ Approval for one worktree does not grant access to another worktree.
 Never force-push or use `git reset --hard`. Destructive cleanup requires explicit current user approval.
 Read the repository's check and Git instructions.
 
-Saving work means creating a commit. Finish with an ordinary passed commit; a WIP or failed checkpoint is not finished work.
+Saving work means creating a commit. Finish with an ordinary passed commit; a WIP or failed checkpoint is not finished work. The reviewed `dont-merge` scaffold required by `sync-merge-main` is the exception when main must be integrated before the branch can pass.
 The commit-msg hook owns check results. An ordinary commit needs no input marker.
 Never copy a passed marker to avoid checks. The hook always checks ordinary commits.
 
@@ -33,7 +33,15 @@ A rejected hook does not create a commit. Repair the stated error and retry.
 Do not bypass the hook or rewrite check results.
 
 Read `uv run coloph-sync status`. A conflict belongs to the branch owner.
-Follow the repository's Git procedure to integrate its local integration branch. Read both sides from their shared parent, preserve both intended behaviors, resolve the conflict, and run the relevant checks. Use a real merge; do not rebase or recreate selected changes.
+Load `sync-merge-main` and follow it completely when the current branch needs the configured local main branch or when the coordinator reports a merge conflict for the current tip. Read both histories from their shared parent, preserve both intended behaviors, resolve the conflict, and run the relevant checks. Use a real merge; do not rebase or recreate selected changes.
 Do not operate the coordinator while repairing your branch.
 The coordinator attempts merges; it does not resolve conflicts or write repairs.
-If the finish workflow sent you here, return to it after the repair commit.
+
+## Required closeout handoff
+
+After an ordinary passed commit, immediately use `sync-finish` in the same turn.
+Do not give a final user handoff from this workflow.
+
+Skip `sync-finish` only when the user explicitly pauses the task, requests a local-only commit, or tells you not to wait for integration or delivery.
+
+If `sync-finish` sent you here for a repair, return to `sync-finish` after the repair commit. Continue the closeout workflow in the same turn.
