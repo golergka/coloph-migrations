@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import subprocess
 
@@ -186,6 +187,7 @@ def test_dry_run_command_uses_disposable_database(tmp_path: Path, monkeypatch, c
 
 def test_init_warns_when_env_is_not_ignored(tmp_path: Path, monkeypatch, capsys) -> None:
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "core.excludesFile", os.devnull], cwd=tmp_path, check=True)
     monkeypatch.chdir(tmp_path)
 
     run(["init"])
