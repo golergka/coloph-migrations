@@ -1,0 +1,26 @@
+{
+  "install-bundled-skills": {
+    "digest": "c7cba858ba805786f2c37a671a409ad5f685c75a5ac67094e85d66949a312386",
+    "provider": "coloph-install-skills"
+  },
+  "sync-contributor": {
+    "digest": "706ba3fd0dca605380e54d10ae33415f8bbb11b92537c84e4fe254ab385c60c2",
+    "provider": "coloph-sync"
+  },
+  "sync-finish": {
+    "digest": "ec7c78d211da2b24738430ce9d10289e896c71af8ad4d6930b11e7075d5c3879",
+    "provider": "coloph-sync"
+  },
+  "sync-merge-main": {
+    "digest": "5dc52d930cf86339787d07f1003b83dc10df56c86ecfe1f1796175e57c452dd7",
+    "provider": "coloph-sync"
+  },
+  "sync-operator": {
+    "digest": "bfb290d997ab83e5b4b6f70113f9e50329ba0c96875929b4bb275e2101c551a5",
+    "provider": "coloph-sync"
+  },
+  "sync-release": {
+    "digest": "d27d3bb4df997987a4c69fe477eb1a13374435ab70df5b7d496ef650b97cd917",
+    "provider": "coloph-sync"
+  }
+}

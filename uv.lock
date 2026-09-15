@@ -73,8 +73,17 @@ wheels = [
 ]
 
 [[package]]
+name = "coloph-install-skills"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/ef/db2aa35f8f8c6042a93eb62eb3dc8315920a4fa7b9a8eeac206766f59253/coloph_install_skills-0.1.3.tar.gz", hash = "sha256:72c2383d18530f0c318c21307ef9d2bc1bc04803bc9e4c28d3c0e0a45627e433", size = 43627, upload-time = "2026-09-13T02:16:18.429Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/84/d6/f416b2450d4906745eb9061ce50301c06d00e0bc038b89e85ef97c06f446/coloph_install_skills-0.1.3-py3-none-any.whl", hash = "sha256:f59204ba78498e60d258b17d0f386481487c180d46299af04012adb227106d4d", size = 18817, upload-time = "2026-09-13T02:16:17.618Z" },
+]
+
+[[package]]
 name = "coloph-migrations"
-version = "1.1.2"
+version = "2.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "psycopg", extra = ["binary"] },
@@ -105,11 +114,14 @@ dev = [
 
 [[package]]
 name = "coloph-sync"
-version = "0.3.2"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/93/e6/23f3371b6a03019ee07529ccf561354ac6ab84f6f0bae526491d18d6d8a6/coloph_sync-0.3.2.tar.gz", hash = "sha256:508defc5221a241520fd0b351cd5851a986a95d0097112727dc5e341c169dd7b", size = 45888, upload-time = "2026-09-11T05:54:12.924Z" }
+dependencies = [
+    { name = "coloph-install-skills" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/b0/cab56f851b457b96b01fe091d6397f926140bf5d223bb694d4280671db9e/coloph_sync-1.0.0.tar.gz", hash = "sha256:ae21f95900ac4e9ce07c5091bcecf57bf6b52cd2216582dc1eea0ba66f13e6d2", size = 70866, upload-time = "2026-09-13T23:00:01.651Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fe/d3/4a4b6bc475a83717ffed7fd6ebe1505bede8354b511a081c0303279b5b3e/coloph_sync-0.3.2-py3-none-any.whl", hash = "sha256:35fda7a38d0504e62a52b600487f4e6973ced3df8e46c4ee4c5515d239c1c7a8", size = 35315, upload-time = "2026-09-11T05:54:11.929Z" },
+    { url = "https://files.pythonhosted.org/packages/43/70/6afea4c2894568c9db262faddb2868fe766e399b4a0f567b6c37c51e49f3/coloph_sync-1.0.0-py3-none-any.whl", hash = "sha256:2d9fdd16caaeb27c806aa1cb81ee63adc96a6050d04904e87d8c348ed43036a3", size = 50232, upload-time = "2026-09-13T23:00:00.348Z" },
 ]
 
 [[package]]
