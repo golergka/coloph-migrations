@@ -1,5 +1,7 @@
 # Coloph Migrations
 
+*Part of Coloph Works: agent-native building blocks for better software.*
+
 `coloph-migrate` is a PostgreSQL migration CLI built for coding agents. It pairs
 goal-driven project skills with numbered SQL migrations, checksum checks,
 schema reconstruction, and deployed-code compatibility tests. Agents use the
