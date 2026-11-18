@@ -8,6 +8,8 @@ schema reconstruction, and deployed-code compatibility tests. Agents use the
 CLI to inspect, change, and diagnose schemas instead of writing migration
 machinery. The CLI is the public interface; Python modules are internal.
 
+See [Coloph Works](https://github.com/golergka/coloph-works) for the full package collection.
+
 ## Quick start
 
 Add it to the repository's development dependencies (and commit the updated
